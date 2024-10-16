@@ -116,15 +116,19 @@ func (s Spec) DeviceMemoryOffset(idx int) uint64 {
 func (s Spec) DeviceMemoryTotal(idx int) uint64 {
 	v := uint64(0)
 	for _, p := range s.sr.procs {
-		v += p.used[idx].total
+		if idx < int(s.sr.procnum) {
+			v += p.used[idx].total
+		}
 	}
 	return v
 }
 
 func (s Spec) DeviceSmUtil(idx int) uint64 {
 	v := uint64(0)
-	for _, p := range s.sr.procs {
-		v += p.deviceUtil[idx].smUtil
+	for idx, p := range s.sr.procs {
+		if idx < int(s.sr.procnum) {
+			v += p.deviceUtil[idx].smUtil
+		}
 	}
 	return v
 }

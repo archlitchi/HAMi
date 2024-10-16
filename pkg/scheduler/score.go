@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/Project-HAMi/HAMi/pkg/device"
+	"github.com/Project-HAMi/HAMi/pkg/device/nvidia"
 	"github.com/Project-HAMi/HAMi/pkg/scheduler/config"
 	"github.com/Project-HAMi/HAMi/pkg/scheduler/policy"
 	"github.com/Project-HAMi/HAMi/pkg/util"
@@ -63,13 +64,15 @@ func checkUUID(annos map[string]string, d util.DeviceUsage, n util.ContainerDevi
 	return result
 }
 
-func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod) (bool, map[string]util.ContainerDevices) {
+func (s *Scheduler) fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod) (bool, map[string]util.ContainerDevices) {
 	k := request
 	originReq := k.Nums
 	prevnuma := -1
 	klog.InfoS("Allocating device for container request", "pod", klog.KObj(pod), "card request", k)
 	var tmpDevs map[string]util.ContainerDevices
 	tmpDevs = make(map[string]util.ContainerDevices)
+	accuMem := int64(0)
+	accuCore := int64(0)
 	for i := len(node.Devices.DeviceLists) - 1; i >= 0; i-- {
 		klog.InfoS("scoring pod", "pod", klog.KObj(pod), "Memreq", k.Memreq, "MemPercentagereq", k.MemPercentagereq, "Coresreq", k.Coresreq, "Nums", k.Nums, "device index", i, "device", node.Devices.DeviceLists[i].Device.ID)
 		found, numa := checkType(annos, *node.Devices.DeviceLists[i].Device, k)
@@ -82,6 +85,8 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 			k.Nums = originReq
 			prevnuma = node.Devices.DeviceLists[i].Device.Numa
 			tmpDevs = make(map[string]util.ContainerDevices)
+			accuCore = 0
+			accuMem = 0
 		}
 		if !checkUUID(annos, *node.Devices.DeviceLists[i].Device, k) {
 			klog.InfoS("card uuid mismatch,", "pod", klog.KObj(pod), "current device info is:", *node.Devices.DeviceLists[i].Device)
@@ -122,9 +127,19 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 			klog.V(5).InfoS("can't allocate core=0 job to an already full GPU", "pod", klog.KObj(pod), "device index", i, "device", node.Devices.DeviceLists[i].Device.ID)
 			continue
 		}
+		if strings.Contains(node.Devices.DeviceLists[i].Device.Type, nvidia.NvidiaGPUDevice) {
+			if !s.FitQuota(pod.Namespace, accuMem+int64(memreq), accuCore+int64(k.Coresreq)) {
+				klog.V(5).InfoS("quota exceeded", "pod", klog.KObj(pod), "memreq", memreq, "coresreq", k.Coresreq)
+				continue
+			}
+		}
 		if k.Nums > 0 {
 			klog.InfoS("first fitted", "pod", klog.KObj(pod), "device", node.Devices.DeviceLists[i].Device.ID)
 			k.Nums--
+			if strings.Contains(node.Devices.DeviceLists[i].Device.Type, nvidia.NvidiaGPUDevice) {
+				accuCore += int64(k.Coresreq)
+				accuMem += int64(memreq)
+			}
 			tmpDevs[k.Type] = append(tmpDevs[k.Type], util.ContainerDevice{
 				Idx:       int(node.Devices.DeviceLists[i].Device.Index),
 				UUID:      node.Devices.DeviceLists[i].Device.ID,
@@ -141,7 +156,7 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 	return false, tmpDevs
 }
 
-func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos map[string]string, pod *corev1.Pod, devinput *util.PodDevices) (bool, float32) {
+func (s *Scheduler) fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos map[string]string, pod *corev1.Pod, devinput *util.PodDevices) (bool, float32) {
 	//devmap := make(map[string]util.ContainerDevices)
 	devs := util.ContainerDevices{}
 	total, totalCore, totalMem := int32(0), int32(0), int32(0)
@@ -159,7 +174,7 @@ func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos 
 			return false, 0
 		}
 		sort.Sort(node.Devices)
-		fit, tmpDevs := fitInCertainDevice(node, k, annos, pod)
+		fit, tmpDevs := s.fitInCertainDevice(node, k, annos, pod)
 		if fit {
 			for _, val := range tmpDevs[k.Type] {
 				total += node.Devices.DeviceLists[val.Idx].Device.Count
@@ -219,7 +234,7 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 				}
 			}
 			klog.V(5).InfoS("fitInDevices", "pod", klog.KObj(task), "node", nodeID)
-			fit, _ := fitInDevices(node, n, annos, task, &score.Devices)
+			fit, _ := s.fitInDevices(node, n, annos, task, &score.Devices)
 			ctrfit = fit
 			if !fit {
 				klog.InfoS("calcScore:node not fit pod", "pod", klog.KObj(task), "node", nodeID)

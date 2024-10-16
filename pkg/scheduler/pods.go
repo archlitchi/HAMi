@@ -53,7 +53,7 @@ func (m *podManager) init() {
 	m.pods = make(map[k8stypes.UID]*podInfo)
 }
 
-func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevices) {
+func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevices) bool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 	_, ok := m.pods[pod.UID]
@@ -61,17 +61,19 @@ func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevi
 		pi := &podInfo{Name: pod.Name, UID: pod.UID, Namespace: pod.Namespace, NodeID: nodeID, Devices: devices}
 		m.pods[pod.UID] = pi
 		klog.Infof("Pod added: Name: %s, UID: %s, Namespace: %s, NodeID: %s", pod.Name, pod.UID, pod.Namespace, nodeID)
+		return true
 	}
+	return false
 }
 
-func (m *podManager) delPod(pod *corev1.Pod) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+func (m *podManager) deletePod(pod *corev1.Pod) bool {
 	pi, ok := m.pods[pod.UID]
 	if ok {
 		klog.Infof("Deleted pod %s with node ID %s", pi.Name, pi.NodeID)
 		delete(m.pods, pod.UID)
+		return true
 	}
+	return false
 }
 
 func (m *podManager) ListPodsUID() ([]*corev1.Pod, error) {

@@ -45,11 +45,14 @@ import (
 type Scheduler struct {
 	nodeManager
 	podManager
+	quotaManager
 
-	stopCh     chan struct{}
-	kubeClient kubernetes.Interface
-	podLister  listerscorev1.PodLister
-	nodeLister listerscorev1.NodeLister
+	stopCh      chan struct{}
+	kubeClient  kubernetes.Interface
+	podLister   listerscorev1.PodLister
+	nodeLister  listerscorev1.NodeLister
+	quotaLister listerscorev1.ResourceQuotaLister
+
 	//Node status returned by filter
 	cachedstatus map[string]*NodeUsage
 	nodeNotify   chan struct{}
@@ -68,6 +71,7 @@ func NewScheduler() *Scheduler {
 	}
 	s.nodeManager.init()
 	s.podManager.init()
+	s.quotaManager.init()
 	return s
 }
 
@@ -103,8 +107,14 @@ func (s *Scheduler) onAddPod(obj interface{}) {
 		s.delPod(pod)
 		return
 	}
+	_, ok = s.podManager.pods[pod.UID]
+	if ok {
+		return
+	}
 	podDev, _ := util.DecodePodDevices(util.SupportDevices, pod.Annotations)
-	s.addPod(pod, nodeID, podDev)
+	if s.addPod(pod, nodeID, podDev) {
+		s.addUsage(pod, podDev)
+	}
 }
 
 func (s *Scheduler) onUpdatePod(_, newObj interface{}) {
@@ -124,6 +134,41 @@ func (s *Scheduler) onDelPod(obj interface{}) {
 	s.delPod(pod)
 }
 
+func (s *Scheduler) delPod(pod *corev1.Pod) {
+	s.podManager.mutex.Lock()
+	defer s.podManager.mutex.Unlock()
+
+	pi, ok := s.pods[pod.UID]
+	if ok {
+		s.rmUsage(pod, pi.Devices)
+		s.podManager.deletePod(pod)
+		klog.Infof("Deleted pod %s with node ID %s", pi.Name, pi.NodeID)
+	}
+}
+
+func (s *Scheduler) onAddQuota(obj interface{}) {
+	quota, ok := obj.(*corev1.ResourceQuota)
+	if !ok {
+		klog.Errorf("unknown add object type")
+		return
+	}
+	s.addQuota(quota)
+}
+
+func (s *Scheduler) onUpdateQuota(_, newObj interface{}) {
+	s.onDelQuota(newObj)
+	s.onAddQuota(newObj)
+}
+
+func (s *Scheduler) onDelQuota(obj interface{}) {
+	quota, ok := obj.(*corev1.ResourceQuota)
+	if !ok {
+		klog.Errorf("unknown add object type")
+		return
+	}
+	s.delQuota(quota)
+}
+
 func (s *Scheduler) Start() {
 	kubeClient, err := k8sutil.NewClient()
 	check(err)
@@ -131,6 +176,7 @@ func (s *Scheduler) Start() {
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(s.kubeClient, time.Hour*1)
 	s.podLister = informerFactory.Core().V1().Pods().Lister()
 	s.nodeLister = informerFactory.Core().V1().Nodes().Lister()
+	s.quotaLister = informerFactory.Core().V1().ResourceQuotas().Lister()
 
 	informer := informerFactory.Core().V1().Pods().Informer()
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -142,6 +188,11 @@ func (s *Scheduler) Start() {
 		AddFunc:    s.onAddNode,
 		UpdateFunc: s.onUpdateNode,
 		DeleteFunc: s.onDelNode,
+	})
+	informerFactory.Core().V1().ResourceQuotas().Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    s.onAddQuota,
+		UpdateFunc: s.onUpdateQuota,
+		DeleteFunc: s.onDelQuota,
 	})
 	informerFactory.Start(s.stopCh)
 	informerFactory.WaitForCacheSync(s.stopCh)
@@ -401,16 +452,6 @@ func (s *Scheduler) Bind(args extenderv1.ExtenderBindingArgs) (*extenderv1.Exten
 			goto ReleaseNodeLocks
 		}
 	}
-	/*
-		err = nodelock.LockNode(args.Node)
-		if err != nil {
-			klog.ErrorS(err, "Failed to lock node", "node", args.Node)
-			res = &extenderv1.ExtenderBindingResult{
-				Error: err.Error(),
-			}
-			return res, nil
-		}*/
-	//defer util.ReleaseNodeLock(args.Node)
 
 	tmppatch[util.DeviceBindPhase] = "allocating"
 	tmppatch[util.BindTimeAnnotations] = strconv.FormatInt(time.Now().Unix(), 10)
@@ -498,7 +539,9 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	//supportDevices := util.EncodePodDevices(util.SupportDevices, m.devices)
 	//maps.Copy(annotations, InRequestDevices)
 	//maps.Copy(annotations, supportDevices)
-	s.addPod(args.Pod, m.NodeID, m.Devices)
+	if s.addPod(args.Pod, m.NodeID, m.Devices) {
+		s.addUsage(args.Pod, m.Devices)
+	}
 	err = util.PatchPodAnnotations(args.Pod, annotations)
 	if err != nil {
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, []string{}, err)

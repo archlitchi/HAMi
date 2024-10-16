@@ -1,18 +1,25 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: gpu-pod
+  name: gpu-pod1
 spec:
+  volumes:
+    - name: benchmarks
+      hostPath:
+        path: /root/zgc/othercase/2_7/benchmarks/scripts/tf_cnn_benchmarks
   containers:
     - name: ubuntu-container
-      image: ubuntu:18.04
+      image: tensorflow/tensorflow:2.4.1-gpu
       command: ["bash", "-c", "sleep 86400"]
+      volumeMounts:
+      - mountPath: /work
+        name: benchmarks
       resources:
         requests:
           nvidia.com/gpu: 2 # requesting 2 vGPUs
-          nvidia.com/gpumem: 500 # Each vGPU contains 3000m device memory （Optional,Integer）
+          nvidia.com/gpumem: 15000 # Each vGPU contains 3000m device memory （Optional,Integer）
           nvidia.com/gpucores: 30 # Each vGPU uses 30% of the entire GPU （Optional,Integer)
         limits:
           nvidia.com/gpu: 2 # requesting 2 vGPUs
-          nvidia.com/gpumem: 500 # Each vGPU contains 3000m device memory （Optional,Integer）
+          nvidia.com/gpumem: 15000 # Each vGPU contains 3000m device memory （Optional,Integer）
           nvidia.com/gpucores: 30 # Each vGPU uses 30% of the entire GPU （Optional,Integer)
