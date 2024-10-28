@@ -107,10 +107,6 @@ func (s *Scheduler) onAddPod(obj interface{}) {
 		s.delPod(pod)
 		return
 	}
-	_, ok = s.podManager.pods[pod.UID]
-	if ok {
-		return
-	}
 	podDev, _ := util.DecodePodDevices(util.SupportDevices, pod.Annotations)
 	if s.addPod(pod, nodeID, podDev) {
 		s.addUsage(pod, podDev)
