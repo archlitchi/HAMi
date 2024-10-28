@@ -71,7 +71,7 @@ func (h *webhook) Handle(_ context.Context, req admission.Request) admission.Res
 			}
 		}
 		for _, val := range device.GetDevices() {
-			found, err := val.MutateAdmission(c)
+			found, err := val.MutateAdmission(c, pod)
 			if err != nil {
 				klog.Errorf("validating pod failed:%s", err.Error())
 				return admission.Errored(http.StatusInternalServerError, err)
@@ -85,6 +85,10 @@ func (h *webhook) Handle(_ context.Context, req admission.Request) admission.Res
 		//return admission.Allowed("no resource found")
 	} else if len(config.SchedulerName) > 0 {
 		pod.Spec.SchedulerName = config.SchedulerName
+		if pod.Spec.NodeName != "" {
+			klog.Infof(template+" - Pod already has node assigned", req.Namespace, req.Name, req.UID)
+			return admission.Denied("pod has node assigned")
+		}
 	}
 	marshaledPod, err := json.Marshal(pod)
 	if err != nil {

@@ -10,7 +10,7 @@ English version|[中文版](README_cn.md)
 [![codecov](https://codecov.io/gh/Project-HAMi/HAMi/branch/master/graph/badge.svg?token=ROM8CMPXZ6)](https://codecov.io/gh/Project-HAMi/HAMi)
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FProject-HAMi%2FHAMi.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FProject-HAMi%2FHAMi?ref=badge_shield)
 [![docker pulls](https://img.shields.io/docker/pulls/4pdosc/k8s-vgpu.svg)](https://hub.docker.com/r/4pdosc/k8s-vgpu)
-[![slack](https://img.shields.io/badge/Slack-Join%20Slack-blue)](https://join.slack.com/t/hami-hsf3791/shared_invite/zt-2gcteqiph-Ls8Atnpky6clrspCAQ_eGQ)
+[![slack](https://img.shields.io/badge/Slack-Join%20Slack-blue)](https://cloud-native.slack.com/archives/C07T10BU4R2)
 [![discuss](https://img.shields.io/badge/Discuss-Ask%20Questions-blue)](https://github.com/Project-HAMi/HAMi/discussions)
 [![website](https://img.shields.io/badge/website-blue)](http://project-hami.io)
 [![Contact Me](https://img.shields.io/badge/Contact%20Me-blue)](https://github.com/Project-HAMi/HAMi#contact)
@@ -65,6 +65,9 @@ will see 3G device memory inside container
 [![cambricon MLU](https://img.shields.io/badge/Cambricon-Mlu-blue)](docs/cambricon-mlu-support.md)
 [![hygon DCU](https://img.shields.io/badge/Hygon-DCU-blue)](docs/hygon-dcu-support.md)
 [![iluvatar GPU](https://img.shields.io/badge/Iluvatar-GPU-blue)](docs/iluvatar-gpu-support.md)
+[![mthreads GPU](https://img.shields.io/badge/Mthreads-GPU-blue)](docs/mthreads-support.md)
+[![ascend NPU](https://img.shields.io/badge/Ascend-NPU-blue)](https://github.com/Project-HAMi/ascend-device-plugin/blob/main/README.md)
+[![metax GPU](https://img.shields.io/badge/metax-GPU-blue)](docs/metax-support.md)
 
 ## Architect
 
@@ -166,7 +169,7 @@ If you have any questions, please feel free to reach out to us through the follo
   - [Meeting Link](https://meeting.tencent.com/dm/Ntiwq1BICD1P)
 - Email: refer to the [MAINTAINERS.md](MAINTAINERS.md) to find the email addresses of all maintainers. Feel free to contact them via email to report any issues or ask questions.
 - [mailing list](https://groups.google.com/forum/#!forum/hami-project)
-- [slack](https://join.slack.com/t/hami-hsf3791/shared_invite/zt-2gcteqiph-Ls8Atnpky6clrspCAQ_eGQ)
+- [slack](https://cloud-native.slack.com/archives/C07T10BU4R2) | [Join](https://slack.cncf.io/)
 
 ## License
 

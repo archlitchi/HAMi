@@ -214,7 +214,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 			return
 		}
 		labelSelector := labels.Everything()
-		if config.NodeLabelSelector != nil && len(config.NodeLabelSelector) > 0 {
+		if len(config.NodeLabelSelector) > 0 {
 			labelSelector = (labels.Set)(config.NodeLabelSelector).AsSelector()
 		}
 		rawNodes, err := s.nodeLister.List(labelSelector)
@@ -264,6 +264,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 				}
 				nodeInfo := &util.NodeInfo{}
 				nodeInfo.ID = val.Name
+				nodeInfo.Node = val
 				nodeInfo.Devices = make([]util.DeviceInfo, 0)
 				for _, deviceinfo := range nodedevices {
 					found := false
@@ -294,7 +295,7 @@ func (s *Scheduler) RegisterFromNodeAnnotations() {
 				}
 				s.addNode(val.Name, nodeInfo)
 				if s.nodes[val.Name] != nil && len(nodeInfo.Devices) > 0 {
-					klog.Infof("node %v device %s come node info=%v total=%v", val.Name, devhandsk, nodeInfo, s.nodes[val.Name].Devices)
+					klog.Infof("node %v device %s come node info=%s,%v total=%v", val.Name, devhandsk, nodeInfo.ID, nodeInfo.Devices, s.nodes[val.Name].Devices)
 				}
 			}
 		}
@@ -330,6 +331,7 @@ func (s *Scheduler) getNodesUsage(nodes *[]string, task *corev1.Pod) (*map[strin
 				userGPUPolicy = value
 			}
 		}
+		nodeInfo.Node = node.Node
 		nodeInfo.Devices = policy.DeviceUsageList{
 			Policy:      userGPUPolicy,
 			DeviceLists: make([]*policy.DeviceListsScore, 0),
