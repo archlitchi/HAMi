@@ -180,7 +180,7 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 	klog.Info("Starting to collect metrics for vGPUMonitor")
 	containerLister := cc.ClusterManager.containerLister
 	if err := containerLister.Update(); err != nil {
-		klog.Error("Update container error: %s", err.Error())
+		klog.Errorf("Update container error: %s", err.Error())
 	}
 
 	nvret := nvml.Init()
