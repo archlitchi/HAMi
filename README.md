@@ -130,6 +130,12 @@ kubectl get pods -n kube-system
 
 If both `vgpu-device-plugin` and `vgpu-scheduler` pods are in the *Running* state, your installation is successful. You can try examples [here](https://github.com/Project-HAMi/HAMi/blob/newprofile/examples/nvidia/default_use.yaml) 
 
+### WebUI
+
+[HAMi-WebUI](https://github.com/Project-HAMi/HAMi-WebUI) is available after HAMi v2.4
+
+For installation guide, click [here](https://github.com/Project-HAMi/HAMi-WebUI/blob/main/docs/installation/helm/index.md)
+
 ### Monitor
 
 Monitoring is automatically enabled after installation. Obtain an overview of cluster information by visiting the following URL:
@@ -170,6 +176,16 @@ If you have any questions, please feel free to reach out to us through the follo
 - Email: refer to the [MAINTAINERS.md](MAINTAINERS.md) to find the email addresses of all maintainers. Feel free to contact them via email to report any issues or ask questions.
 - [mailing list](https://groups.google.com/forum/#!forum/hami-project)
 - [slack](https://cloud-native.slack.com/archives/C07T10BU4R2) | [Join](https://slack.cncf.io/)
+
+## Talks and References
+
+|                  | Link                                                                                                                    |
+|------------------|-------------------------------------------------------------------------------------------------------------------------|
+| CHINA CLOUD COMPUTING INFRASTRUCTURE DEVELOPER CONFERENCE (Beijing 2024) | [Unlocking heterogeneous AI infrastructure on k8s clusters](https://live.csdn.net/room/csdnnews/3zwDP09S) Starting from 03:06:15 |
+| KubeDay(Japan 2024) | [Unlocking Heterogeneous AI Infrastructure K8s Cluster:Leveraging the Power of HAMi](https://www.youtube.com/watch?v=owoaSb4nZwg) |
+| KubeCon & AI_dev Open Source GenAI & ML Summit(China 2024) | [Is Your GPU Really Working Efficiently in the Data Center?N Ways to Improve GPU Usage](https://www.youtube.com/watch?v=ApkyK3zLF5Q) |
+| KubeCon & AI_dev Open Source GenAI & ML Summit(China 2024) | [Unlocking Heterogeneous AI Infrastructure K8s Cluster](https://www.youtube.com/watch?v=kcGXnp_QShs)                                     |
+| KubeCon(EU 2024)| [Cloud Native Batch Computing with Volcano: Updates and Future](https://youtu.be/fVYKk6xSOsw) |
 
 ## License
 
