@@ -55,11 +55,13 @@ func (q *quotaManager) FitQuota(ns string, memreq int64, coresreq int64, deviceN
 	memResourceName := resourceNames.ResourceMemoryName
 	coreResourceName := resourceNames.ResourceCoreName
 	klog.InfoS("resourceMem quota judging", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
-	if (*dq)[memResourceName].Limit != 0 && (*dq)[memResourceName].Used+memreq > (*dq)[memResourceName].Limit {
+	_, ok = (*dq)[memResourceName]
+	if ok && (*dq)[memResourceName].Limit != 0 && (*dq)[memResourceName].Used+memreq > (*dq)[memResourceName].Limit {
 		klog.InfoS("resourceMem quota not fitted", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
 		return false
 	}
-	if (*dq)[coreResourceName].Limit != 0 && (*dq)[coreResourceName].Used+coresreq > (*dq)[coreResourceName].Limit {
+	_, ok = (*dq)[coreResourceName]
+	if ok && (*dq)[coreResourceName].Limit != 0 && (*dq)[coreResourceName].Used+coresreq > (*dq)[coreResourceName].Limit {
 		klog.InfoS("resourceCores quota not fitted", "limit", (*dq)[coreResourceName].Limit, "used", (*dq)[coreResourceName].Used, "alloc", memreq)
 		return false
 	}
@@ -99,7 +101,10 @@ func (q *quotaManager) addUsage(pod *corev1.Pod, podDev util.PodDevices) {
 	if q.Quotas[pod.Namespace] == nil {
 		q.Quotas[pod.Namespace] = &DeviceQuota{}
 	}
-	dp := q.Quotas[pod.Namespace]
+	dp, ok := q.Quotas[pod.Namespace]
+	if !ok {
+		return
+	}
 	for idx, val := range usage {
 		_, ok := (*dp)[idx]
 		if !ok {
@@ -112,7 +117,7 @@ func (q *quotaManager) addUsage(pod *corev1.Pod, podDev util.PodDevices) {
 	}
 	for _, val := range q.Quotas {
 		for idx, val1 := range *val {
-			klog.Infoln("after val=", idx, ":", val1)
+			klog.Infoln("add usage val=", idx, ":", val1)
 		}
 	}
 }
@@ -122,9 +127,15 @@ func (q *quotaManager) rmUsage(pod *corev1.Pod, podDev util.PodDevices) {
 	if len(usage) == 0 {
 		return
 	}
-	dp := q.Quotas[pod.Namespace]
+	dp, ok := q.Quotas[pod.Namespace]
+	if !ok {
+		return
+	}
 	for idx, val := range usage {
-		(*dp)[idx].Used -= val
+		_, ok = (*dp)[idx]
+		if ok {
+			(*dp)[idx].Used -= val
+		}
 	}
 	for _, val := range q.Quotas {
 		for idx, val1 := range *val {

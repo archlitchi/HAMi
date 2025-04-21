@@ -81,7 +81,7 @@ func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevi
 			"devices", devices,
 		)
 	}
-	return false
+	return !exists
 }
 
 func (m *podManager) delPod(pod *corev1.Pod) {
