@@ -252,3 +252,11 @@ func (dev *EnflameDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.Conta
 	n.Usedmem += ctr.Usedmem
 	return nil
 }
+
+func (dev *EnflameDevices) GetResourceNames() util.ResoureNames {
+	return util.ResoureNames{
+		ResourceCountName:  EnflameResourceCount,
+		ResourceMemoryName: EnflameResourcePercentage,
+		ResourceCoreName:   "",
+	}
+}

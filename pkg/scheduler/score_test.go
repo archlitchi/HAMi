@@ -2083,9 +2083,10 @@ func Test_fitInCertainDevice(t *testing.T) {
 			},
 		},
 	}
+	s := NewScheduler()
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result1, result2 := fitInCertainDevice(test.args.node, test.args.request, test.args.annos, test.args.pod, test.args.allocated)
+			result1, result2 := s.fitInCertainDevice(test.args.node, test.args.request, test.args.annos, test.args.pod, test.args.allocated)
 			assert.DeepEqual(t, result1, test.want1)
 			assert.DeepEqual(t, result2, test.want2)
 		})
@@ -2251,10 +2252,11 @@ func Test_fitInDevices(t *testing.T) {
 			want2: float32(0),
 		},
 	}
+	s := NewScheduler()
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			viewStatus(test.args.node)
-			result1, result2 := fitInDevices(&test.args.node, test.args.requests, test.args.annos, test.args.pod, test.args.devinput)
+			result1, result2 := s.fitInDevices(&test.args.node, test.args.requests, test.args.annos, test.args.pod, test.args.devinput)
 			assert.DeepEqual(t, result1, test.want1)
 			assert.DeepEqual(t, result2, test.want2)
 		})

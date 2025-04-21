@@ -20,7 +20,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Project-HAMi/HAMi/pkg/device/nvidia"
+	"github.com/Project-HAMi/HAMi/pkg/device"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
@@ -42,11 +42,18 @@ func (q *quotaManager) init() {
 	q.Quotas = make(map[string]*DeviceQuota)
 }
 
-func (q *quotaManager) FitQuota(ns string, memreq int64, memResourceName string, coresreq int64, coreResourceName string) bool {
+func (q *quotaManager) FitQuota(ns string, memreq int64, coresreq int64, deviceName string) bool {
 	dq := q.Quotas[ns]
 	if dq == nil {
 		return true
 	}
+	devs, ok := device.GetDevices()[deviceName]
+	if !ok {
+		return true
+	}
+	resourceNames := devs.GetResourceNames()
+	memResourceName := resourceNames.ResourceMemoryName
+	coreResourceName := resourceNames.ResourceCoreName
 	klog.InfoS("resourceMem quota judging", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
 	if (*dq)[memResourceName].Limit != 0 && (*dq)[memResourceName].Used+memreq > (*dq)[memResourceName].Limit {
 		klog.InfoS("resourceMem quota not fitted", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
@@ -62,14 +69,22 @@ func (q *quotaManager) FitQuota(ns string, memreq int64, memResourceName string,
 func countPodDevices(podDev util.PodDevices) map[string]int64 {
 	res := make(map[string]int64)
 	for deviceName, podSingle := range podDev {
-		//if device.GetDevices()[deviceName].
 		if !strings.Contains(deviceName, "NVIDIA") {
 			continue
 		}
+		devs, ok := device.GetDevices()[deviceName]
+		if !ok {
+			continue
+		}
+		resourceNames := devs.GetResourceNames()
 		for _, ctrdevices := range podSingle {
 			for _, ctrdevice := range ctrdevices {
-				res[nvidia.ResourceMem] += int64(ctrdevice.Usedmem)
-				res[nvidia.ResourceCores] += int64(ctrdevice.Usedcores)
+				if len(resourceNames.ResourceMemoryName) > 0 {
+					res[resourceNames.ResourceMemoryName] += int64(ctrdevice.Usedmem)
+				}
+				if len(resourceNames.ResourceCoreName) > 0 {
+					res[resourceNames.ResourceCoreName] += int64(ctrdevice.Usedcores)
+				}
 			}
 		}
 	}
@@ -118,15 +133,27 @@ func (q *quotaManager) rmUsage(pod *corev1.Pod, podDev util.PodDevices) {
 	}
 }
 
+func IsManagedQuota(quotaName string) bool {
+	for _, val := range device.GetDevices() {
+		names := val.GetResourceNames()
+		if len(names.ResourceMemoryName) > 0 && names.ResourceMemoryName == quotaName {
+			return true
+		}
+		if len(names.ResourceCoreName) > 0 && names.ResourceCoreName == quotaName {
+			return true
+		}
+	}
+	return false
+}
+
 func (q *quotaManager) addQuota(quota *corev1.ResourceQuota) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
-	//nvidiaResourceMem:=device.GetDevices()["NVIDIA"].(*nvidia.NvidiaGPUDevices).
 	for idx, val := range quota.Spec.Hard {
 		value, ok := val.AsInt64()
 		if ok {
 			dn := idx.String()[len("requests."):]
-			if !strings.Contains(dn, nvidia.ResourceMem) && !strings.Contains(dn, nvidia.ResourceCores) {
+			if !IsManagedQuota(dn) {
 				continue
 			}
 			if q.Quotas[quota.Namespace] == nil {
@@ -158,7 +185,7 @@ func (q *quotaManager) delQuota(quota *corev1.ResourceQuota) {
 		value, ok := val.AsInt64()
 		if ok {
 			dn := idx.String()[len("requests."):]
-			if !strings.Contains(dn, nvidia.ResourceMem) && !strings.Contains(dn, nvidia.ResourceCores) {
+			if !IsManagedQuota(dn) {
 				continue
 			}
 			klog.InfoS("quota remove:", "idx=", idx, "val", value)

@@ -65,7 +65,7 @@ func checkUUID(annos map[string]string, d util.DeviceUsage, n util.ContainerDevi
 	return result
 }
 
-func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod, allocated *util.PodDevices) (bool, map[string]util.ContainerDevices) {
+func (s *Scheduler) fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod, allocated *util.PodDevices) (bool, map[string]util.ContainerDevices) {
 	k := request
 	originReq := k.Nums
 	prevnuma := -1
@@ -131,6 +131,9 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 		if !device.GetDevices()[k.Type].CustomFilterRule(allocated, request, tmpDevs[k.Type], node.Devices.DeviceLists[i].Device) {
 			continue
 		}
+		if !s.FitQuota(pod.Namespace, int64(memreq), int64(k.Coresreq), k.Type) {
+			continue
+		}
 		if k.Nums > 0 {
 			klog.InfoS("first fitted", "pod", klog.KObj(pod), "device", node.Devices.DeviceLists[i].Device.ID)
 			k.Nums--
@@ -157,7 +160,7 @@ func fitInCertainDevice(node *NodeUsage, request util.ContainerDeviceRequest, an
 	return false, tmpDevs
 }
 
-func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos map[string]string, pod *corev1.Pod, devinput *util.PodDevices) (bool, float32) {
+func (s *Scheduler) fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos map[string]string, pod *corev1.Pod, devinput *util.PodDevices) (bool, float32) {
 	//devmap := make(map[string]util.ContainerDevices)
 	devs := util.ContainerDevices{}
 	total, totalCore, totalMem := int32(0), int32(0), int32(0)
@@ -175,7 +178,7 @@ func fitInDevices(node *NodeUsage, requests util.ContainerDeviceRequests, annos 
 			return false, 0
 		}
 		sort.Sort(node.Devices)
-		fit, tmpDevs := fitInCertainDevice(node, k, annos, pod, devinput)
+		fit, tmpDevs := s.fitInCertainDevice(node, k, annos, pod, devinput)
 		if fit {
 			for idx, val := range tmpDevs[k.Type] {
 				for nidx, v := range node.Devices.DeviceLists {
@@ -247,7 +250,7 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 					}
 				}
 				klog.V(5).InfoS("fitInDevices", "pod", klog.KObj(task), "node", nodeID)
-				fit, _ := fitInDevices(node, n, annos, task, &score.Devices)
+				fit, _ := s.fitInDevices(node, n, annos, task, &score.Devices)
 				ctrfit = fit
 				if !fit {
 					klog.InfoS("calcScore:node not fit pod", "pod", klog.KObj(task), "node", nodeID)

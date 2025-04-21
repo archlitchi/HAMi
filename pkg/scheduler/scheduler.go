@@ -119,7 +119,11 @@ func (s *Scheduler) onDelPod(obj any) {
 	if !ok {
 		return
 	}
-	s.delPod(pod)
+	pi, ok := s.pods[pod.UID]
+	if ok {
+		s.rmUsage(pod, pi.Devices)
+		s.delPod(pod)
+	}
 }
 
 func (s *Scheduler) onAddQuota(obj interface{}) {
