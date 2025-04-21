@@ -99,9 +99,30 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 		"GPU Memory Allocated Percentage on a certain GPU",
 		[]string{"nodeid", "deviceuuid", "deviceidx"}, nil,
 	)
+	nodeGPUMigInstance := prometheus.NewDesc(
+		"nodeGPUMigInstance",
+		"GPU Sharing mode. 0 for hami-core, 1 for mig, 2 for mps",
+		[]string{"nodeid", "deviceuuid", "deviceidx", "migname"}, nil,
+	)
 	nu := sher.InspectAllNodesUsage()
 	for nodeID, val := range *nu {
 		for _, devs := range val.Devices.DeviceLists {
+			if devs.Device.Mode == "mig" {
+				for idx, migs := range devs.Device.MigUsage.UsageList {
+					klog.Infoln("mig instances=", devs.Device.MigUsage)
+					inuse := 0
+					if migs.InUse {
+						inuse = 1
+					}
+					ch <- prometheus.MustNewConstMetric(
+						nodeGPUMigInstance,
+						prometheus.GaugeValue,
+						float64(inuse),
+						nodeID, devs.Device.ID, fmt.Sprint(devs.Device.Index), migs.Name+"-"+fmt.Sprint(idx),
+					)
+				}
+			}
+
 			ch <- prometheus.MustNewConstMetric(
 				nodevGPUMemoryLimitDesc,
 				prometheus.GaugeValue,
@@ -168,9 +189,17 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 		for _, podSingleDevice := range val.Devices {
 			for ctridx, ctrdevs := range podSingleDevice {
 				for _, ctrdevval := range ctrdevs {
-					klog.Infoln("Collecting", val.Namespace, val.NodeID, val.Name, ctrdevval.UUID, ctrdevval.Usedcores, ctrdevval.Usedmem)
+					klog.V(4).InfoS("Collecting metrics",
+						"namespace", val.Namespace,
+						"podName", val.Name,
+						"deviceUUID", ctrdevval.UUID,
+						"usedCores", ctrdevval.Usedcores,
+						"usedMem", ctrdevval.Usedmem,
+						"nodeID", val.NodeID,
+					)
 					if len(ctrdevval.UUID) == 0 {
-						klog.Infof("UUID empty, omitted")
+						klog.Warningf("Device UUID is empty, omitting metric collection for namespace=%s, podName=%s, ctridx=%d, nodeID=%s",
+							val.Namespace, val.Name, ctridx, val.NodeID)
 						continue
 					}
 					ch <- prometheus.MustNewConstMetric(
@@ -193,6 +222,11 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 							break
 						}
 					}
+					klog.V(4).InfoS("Total memory for device",
+						"deviceUUID", ctrdevval.UUID,
+						"totalMemory", totaldev,
+						"nodeID", val.NodeID,
+					)
 					if totaldev > 0 {
 						ch <- prometheus.MustNewConstMetric(
 							ctrvGPUdeviceAllocatedMemoryPercentageDesc,

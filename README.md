@@ -1,4 +1,4 @@
-English version|[中文版](README_cn.md)
+English version | [中文版](README_cn.md)
 
 <img src="imgs/hami-horizontal-colordark.png" width="600px">
 
@@ -19,9 +19,9 @@ English version|[中文版](README_cn.md)
 
 ## Introduction
 
-HAMi, formerly known as 'k8s-vGPU-scheduler', is a Heterogeneous device management middleware for Kubernetes. It can manage different types of heterogeneous devices(like GPU,NPU,etc...), share heterogeneous devices among pods, make better scheduling decision based on topology of devices and schedule policies.
+HAMi, formerly known as 'k8s-vGPU-scheduler', is a Heterogeneous device management middleware for Kubernetes. It can manage different types of heterogeneous devices (like GPU, NPU, etc.), share heterogeneous devices among pods, make better scheduling decisions based on topology of devices and scheduling policies.
 
-It aims to remove the gap between different Heterogeneous devices, and provide a unified interface for user to manage with no change to your application. Until June 2024, HAMi has been widely used around the world at a variety of industries such as Internet/Cloud/Finance/ Manufacturing. More than 40 companies or institutions are not only end users but also active contributors. 
+It aims to remove the gap between different Heterogeneous devices, and provide a unified interface for users to manage with no changes to their applications. As of December 2024, HAMi has been widely used not only in Internet, public cloud and private cloud, but also broadly adopted in various vertical industries including finance, securities, energy, telecommunications, education, and manufacturing. More than 50 companies or institutions are not only end users but also active contributors. 
 
 ![cncf_logo](imgs/cncf-logo.png)
 
@@ -36,28 +36,33 @@ HAMi provides device virtualization for several heterogeneous devices including 
 
 ### Device sharing
 
+- Allows partial device allocation by specifying device core usage.
 - Allows partial device allocation by specifying device memory.
 - Imposes a hard limit on streaming multiprocessors.
-- Permits partial device allocation by specifying device core usage.
 - Requires zero changes to existing programs.
+- Support [dynamic-mig](docs/dynamic-mig-support.md) feature, [example](examples/nvidia/dynamic_mig_example.yaml)
 
 <img src="./imgs/example.png" width = "500" /> 
 
 ### Device Resources Isolation
 
-A simple demostration for device isolation:
-A task with the following resources.
+A simple demonstration of device isolation:
+A task with the following resources:
 
-```
+```yaml
       resources:
         limits:
-          nvidia.com/gpu: 1 # requesting 1 vGPU
-          nvidia.com/gpumem: 3000 # Each vGPU contains 3000m device memory
+          nvidia.com/gpu: 1 # declare how many physical GPUs the pod needs
+          nvidia.com/gpumem: 3000 # identifies 3G GPU memory each physical GPU allocates to the pod
 ```
 
 will see 3G device memory inside container
 
 ![img](./imgs/hard_limit.jpg)
+
+> Note:
+1. **After installing HAMi, the value of `nvidia.com/gpu` registered on the node defaults to the number of vGPUs.**
+2. **When requesting resources in a pod, `nvidia.com/gpu` refers to the number of physical GPUs required by the current pod.**
 
 ### Supported devices
 
@@ -88,9 +93,9 @@ The list of prerequisites for running the NVIDIA device plugin is described belo
 
 - NVIDIA drivers >= 440
 - nvidia-docker version > 2.0
-- config default runtime is nvidia for containerd/docker/cri-o container runtime.
+- default runtime configured as nvidia for containerd/docker/cri-o container runtime
 - Kubernetes version >= 1.16
-- glibc >= 2.17 & glibc < 2.3.0
+- glibc >= 2.17 & glibc < 2.30
 - kernel version >= 3.10
 - helm > 3.0
 
@@ -108,16 +113,10 @@ Add our repo in helm
 helm repo add hami-charts https://project-hami.github.io/HAMi/
 ```
 
-Check your Kubernetes version by using the following command:
+Use the following command for deployment:
 
 ```
-kubectl version
-```
-
-During installation, set the Kubernetes scheduler image version to match your Kubernetes server version. For instance, if your cluster server version is 1.16.8, use the following command for deployment:
-
-```
-helm install hami hami-charts/hami --set scheduler.kubeScheduler.imageTag=v1.16.8 -n kube-system
+helm install hami hami-charts/hami -n kube-system
 ```
 
 Customize your installation by adjusting the [configs](docs/config.md).
@@ -128,7 +127,7 @@ Verify your installation using the following command:
 kubectl get pods -n kube-system
 ```
 
-If both `vgpu-device-plugin` and `vgpu-scheduler` pods are in the *Running* state, your installation is successful. You can try examples [here](https://github.com/Project-HAMi/HAMi/blob/newprofile/examples/nvidia/default_use.yaml) 
+If both `vgpu-device-plugin` and `vgpu-scheduler` pods are in the *Running* state, your installation is successful. You can try examples [here](examples/nvidia/default_use.yaml) 
 
 ### WebUI
 
@@ -158,7 +157,7 @@ Grafana dashboard [example](docs/dashboard.md)
 
 ## RoadMap, Governance & Contributing
 
-The project is governed by a group of [Maintainers and Committers](https://github.com/Project-HAMi/HAMi/blob/master/AUTHORS). How they are selected and govern is outlined in our [Governance Document](https://github.com/Project-HAMi/community/blob/main/governance.md).
+The project is governed by a group of [Maintainers](./MAINTAINERS.md) and [Contributors](./AUTHORS.md). How they are selected and govern is outlined in our [Governance Document](https://github.com/Project-HAMi/community/blob/main/governance.md).
 
 If you're interested in being a contributor and want to get involved in developing the HAMi code, please see [CONTRIBUTING](CONTRIBUTING.md) for details on submitting patches and the contribution workflow.
 
@@ -190,3 +189,7 @@ If you have any questions, please feel free to reach out to us through the follo
 ## License
 
 HAMi is under the Apache 2.0 license. See the [LICENSE](LICENSE) file for details.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Project-HAMi/HAMi&type=Date)](https://star-history.com/#Project-HAMi/HAMi&Date)

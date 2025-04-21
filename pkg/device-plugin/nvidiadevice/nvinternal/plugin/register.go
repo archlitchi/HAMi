@@ -1,18 +1,34 @@
 /*
-Copyright 2024 The HAMi Authors.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The HAMi Contributors require contributions made to
+ * this file be licensed under the Apache-2.0 license or a
+ * compatible open source license.
+ */
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+/*
+ * Licensed to NVIDIA CORPORATION under one or more contributor
+ * license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright
+ * ownership. NVIDIA CORPORATION licenses this file to you under
+ * the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
+/*
+ * Modifications Copyright The HAMi Authors. See
+ * GitHub history for details.
+ */
 
 package plugin
 
@@ -26,7 +42,6 @@ import (
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"k8s.io/klog/v2"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
 	"github.com/Project-HAMi/HAMi/pkg/device/nvidia"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 )
@@ -79,7 +94,7 @@ func parseNvidiaNumaInfo(idx int, nvidiaTopoStr string) (int, error) {
 		}
 		klog.V(5).InfoS("nvidia-smi topo -m row output", "row output", words, "length", len(words))
 		if strings.Contains(words[0], fmt.Sprint(idx)) {
-			if words[numaAffinityColumnIndex] == "N/A" {
+			if len(words) <= numaAffinityColumnIndex || words[numaAffinityColumnIndex] == "N/A" {
 				klog.InfoS("current card has not established numa topology", "gpu row info", words, "index", idx)
 				return 0, nil
 			}
@@ -92,18 +107,23 @@ func parseNvidiaNumaInfo(idx int, nvidiaTopoStr string) (int, error) {
 	return result, nil
 }
 
-func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*api.DeviceInfo {
+func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*util.DeviceInfo {
 	devs := plugin.Devices()
 	klog.V(5).InfoS("getAPIDevices", "devices", devs)
-	nvml.Init()
-	res := make([]*api.DeviceInfo, 0, len(devs))
-	idx := 0
-	for idx < len(devs) {
-		ndev, ret := nvml.DeviceGetHandleByIndex(idx)
-		//ndev, err := nvml.NewDevice(uint(idx))
-		//klog.V(3).Infoln("ndev type=", ndev.Model)
+	if nvret := nvml.Init(); nvret != nvml.SUCCESS {
+		klog.Errorln("nvml Init err: ", nvret)
+		panic(0)
+	}
+	res := make([]*util.DeviceInfo, 0, len(devs))
+	for UUID := range devs {
+		ndev, ret := nvml.DeviceGetHandleByUUID(UUID)
 		if ret != nvml.SUCCESS {
-			klog.Errorln("nvml new device by index error idx=", idx, "err=", ret)
+			klog.Errorln("nvml new device by index error uuid=", UUID, "err=", ret)
+			panic(0)
+		}
+		idx, ret := ndev.GetIndex()
+		if ret != nvml.SUCCESS {
+			klog.Errorln("nvml get index error ret=", ret)
 			panic(0)
 		}
 		memoryTotal := 0
@@ -114,11 +134,6 @@ func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*api.DeviceInfo {
 			klog.Error("nvml get memory error ret=", ret)
 			panic(0)
 		}
-		UUID, ret := ndev.GetUUID()
-		if ret != nvml.SUCCESS {
-			klog.Error("nvml get uuid error ret=", ret)
-			panic(0)
-		}
 		Model, ret := ndev.GetName()
 		if ret != nvml.SUCCESS {
 			klog.Error("nvml get name error ret=", ret)
@@ -126,10 +141,10 @@ func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*api.DeviceInfo {
 		}
 
 		registeredmem := int32(memoryTotal / 1024 / 1024)
-		if *util.DeviceMemoryScaling != 1 {
-			registeredmem = int32(float64(registeredmem) * *util.DeviceMemoryScaling)
+		if plugin.schedulerConfig.DeviceMemoryScaling != 1 {
+			registeredmem = int32(float64(registeredmem) * plugin.schedulerConfig.DeviceMemoryScaling)
 		}
-		klog.Infoln("MemoryScaling=", *util.DeviceMemoryScaling, "registeredmem=", registeredmem)
+		klog.Infoln("MemoryScaling=", plugin.schedulerConfig.DeviceMemoryScaling, "registeredmem=", registeredmem)
 		health := true
 		for _, val := range devs {
 			if strings.Compare(val.ID, UUID) == 0 {
@@ -147,16 +162,17 @@ func (plugin *NvidiaDevicePlugin) getAPIDevices() *[]*api.DeviceInfo {
 		if err != nil {
 			klog.ErrorS(err, "failed to get numa information", "idx", idx)
 		}
-		res = append(res, &api.DeviceInfo{
+		res = append(res, &util.DeviceInfo{
 			ID:      UUID,
-			Count:   int32(*util.DeviceSplitCount),
+			Index:   uint(idx),
+			Count:   int32(plugin.schedulerConfig.DeviceSplitCount),
 			Devmem:  registeredmem,
-			Devcore: int32(*util.DeviceCoresScaling * 100),
+			Devcore: int32(plugin.schedulerConfig.DeviceCoreScaling * 100),
 			Type:    fmt.Sprintf("%v-%v", "NVIDIA", Model),
 			Numa:    numa,
+			Mode:    plugin.operatingMode,
 			Health:  health,
 		})
-		idx++
 		klog.Infof("nvml registered device id=%v, memory=%v, type=%v, numa=%v", idx, registeredmem, Model, numa)
 	}
 	return &res

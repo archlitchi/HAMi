@@ -42,18 +42,18 @@ func (q *quotaManager) init() {
 	q.Quotas = make(map[string]*DeviceQuota)
 }
 
-func (q *quotaManager) FitQuota(ns string, memreq int64, coresreq int64) bool {
+func (q *quotaManager) FitQuota(ns string, memreq int64, memResourceName string, coresreq int64, coreResourceName string) bool {
 	dq := q.Quotas[ns]
 	if dq == nil {
 		return true
 	}
-	klog.InfoS("resourceMem quota judging", "limit", (*dq)[nvidia.ResourceMem].Limit, "used", (*dq)[nvidia.ResourceMem].Used, "alloc", memreq)
-	if (*dq)[nvidia.ResourceMem].Limit != 0 && (*dq)[nvidia.ResourceMem].Used+memreq > (*dq)[nvidia.ResourceMem].Limit {
-		klog.InfoS("resourceMem quota not fitted", "limit", (*dq)[nvidia.ResourceMem].Limit, "used", (*dq)[nvidia.ResourceMem].Used, "alloc", memreq)
+	klog.InfoS("resourceMem quota judging", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
+	if (*dq)[memResourceName].Limit != 0 && (*dq)[memResourceName].Used+memreq > (*dq)[memResourceName].Limit {
+		klog.InfoS("resourceMem quota not fitted", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
 		return false
 	}
-	if (*dq)[nvidia.ResourceCores].Limit != 0 && (*dq)[nvidia.ResourceCores].Used+coresreq > (*dq)[nvidia.ResourceCores].Limit {
-		klog.InfoS("resourceCores quota not fitted", "limit", (*dq)[nvidia.ResourceCores].Limit, "used", (*dq)[nvidia.ResourceCores].Used, "alloc", memreq)
+	if (*dq)[coreResourceName].Limit != 0 && (*dq)[coreResourceName].Used+coresreq > (*dq)[coreResourceName].Limit {
+		klog.InfoS("resourceCores quota not fitted", "limit", (*dq)[coreResourceName].Limit, "used", (*dq)[coreResourceName].Used, "alloc", memreq)
 		return false
 	}
 	return true
@@ -62,6 +62,7 @@ func (q *quotaManager) FitQuota(ns string, memreq int64, coresreq int64) bool {
 func countPodDevices(podDev util.PodDevices) map[string]int64 {
 	res := make(map[string]int64)
 	for deviceName, podSingle := range podDev {
+		//if device.GetDevices()[deviceName].
 		if !strings.Contains(deviceName, "NVIDIA") {
 			continue
 		}
@@ -120,6 +121,7 @@ func (q *quotaManager) rmUsage(pod *corev1.Pod, podDev util.PodDevices) {
 func (q *quotaManager) addQuota(quota *corev1.ResourceQuota) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
+	//nvidiaResourceMem:=device.GetDevices()["NVIDIA"].(*nvidia.NvidiaGPUDevices).
 	for idx, val := range quota.Spec.Hard {
 		value, ok := val.AsInt64()
 		if ok {

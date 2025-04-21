@@ -23,14 +23,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
-	"github.com/Project-HAMi/HAMi/pkg/scheduler/config"
-	"github.com/Project-HAMi/HAMi/pkg/util"
-	"github.com/Project-HAMi/HAMi/pkg/util/nodelock"
-
+	spec "github.com/NVIDIA/k8s-device-plugin/api/config/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/klog/v2"
+
+	"github.com/Project-HAMi/HAMi/pkg/util"
+	"github.com/Project-HAMi/HAMi/pkg/util/nodelock"
 )
 
 const (
@@ -46,26 +45,105 @@ const (
 	GPUUseUUID = "nvidia.com/use-gpuuuid"
 	// GPUNoUseUUID is user can not use specify GPU device for set GPU UUID.
 	GPUNoUseUUID = "nvidia.com/nouse-gpuuuid"
+	AllocateMode = "nvidia.com/vgpu-mode"
+
+	MigMode      = "mig"
+	HamiCoreMode = "hami-core"
+	MpsMode      = "mps"
 )
 
 var (
-	ResourceName          string
-	ResourceMem           string
-	ResourceCores         string
-	ResourceMemPercentage string
-	ResourcePriority      string
-	DebugMode             bool
-	OverwriteEnv          bool
+	NodeName          string
+	RuntimeSocketFlag string
+	DisableCoreLimit  *bool
+
+	// DevicePluginFilterDevice need device-plugin filter this device, don't register this device.
+	DevicePluginFilterDevice *FilterDevice
 )
 
-type NvidiaGPUDevices struct {
+type MigPartedSpec struct {
+	Version    string                        `json:"version"               yaml:"version"`
+	MigConfigs map[string]MigConfigSpecSlice `json:"mig-configs,omitempty" yaml:"mig-configs,omitempty"`
 }
 
-func InitNvidiaDevice() *NvidiaGPUDevices {
+// MigConfigSpec defines the spec to declare the desired MIG configuration for a set of GPUs.
+type MigConfigSpec struct {
+	DeviceFilter any              `json:"device-filter,omitempty" yaml:"device-filter,flow,omitempty"`
+	Devices      []int32          `json:"devices"                 yaml:"devices,flow"`
+	MigEnabled   bool             `json:"mig-enabled"             yaml:"mig-enabled"`
+	MigDevices   map[string]int32 `json:"mig-devices"             yaml:"mig-devices"`
+}
+
+// MigConfigSpecSlice represents a slice of 'MigConfigSpec'.
+type MigConfigSpecSlice []MigConfigSpec
+
+// GPUCoreUtilizationPolicy is set nvidia gpu core isolation policy.
+type GPUCoreUtilizationPolicy string
+
+const (
+	DefaultCorePolicy GPUCoreUtilizationPolicy = "default"
+	ForceCorePolicy   GPUCoreUtilizationPolicy = "force"
+	DisableCorePolicy GPUCoreUtilizationPolicy = "disable"
+)
+
+type NvidiaConfig struct {
+	ResourceCountName            string  `yaml:"resourceCountName"`
+	ResourceMemoryName           string  `yaml:"resourceMemoryName"`
+	ResourceCoreName             string  `yaml:"resourceCoreName"`
+	ResourceMemoryPercentageName string  `yaml:"resourceMemoryPercentageName"`
+	ResourcePriority             string  `yaml:"resourcePriorityName"`
+	OverwriteEnv                 bool    `yaml:"overwriteEnv"`
+	DefaultMemory                int32   `yaml:"defaultMemory"`
+	DefaultCores                 int32   `yaml:"defaultCores"`
+	DefaultGPUNum                int32   `yaml:"defaultGPUNum"`
+	DeviceSplitCount             uint    `yaml:"deviceSplitCount"`
+	DeviceMemoryScaling          float64 `yaml:"deviceMemoryScaling"`
+	DeviceCoreScaling            float64 `yaml:"deviceCoreScaling"`
+	// TODO 这个参数是否应该直接移除
+	DisableCoreLimit  bool                        `yaml:"disableCoreLimit"`
+	MigGeometriesList []util.AllowedMigGeometries `yaml:"knownMigGeometries"`
+	// GPUCorePolicy through webhook automatic injected to container env
+	GPUCorePolicy GPUCoreUtilizationPolicy `yaml:"gpuCorePolicy"`
+}
+
+type FilterDevice struct {
+	// UUID is the device ID.
+	UUID []string `json:"uuid"`
+	// Index is the device index.
+	Index []uint `json:"index"`
+}
+
+type DevicePluginConfigs struct {
+	Nodeconfig []struct {
+		Name                string        `json:"name"`
+		OperatingMode       string        `json:"operatingmode"`
+		Devicememoryscaling float64       `json:"devicememoryscaling"`
+		Devicecorescaling   float64       `json:"devicecorescaling"`
+		Devicesplitcount    uint          `json:"devicesplitcount"`
+		Migstrategy         string        `json:"migstrategy"`
+		FilterDevice        *FilterDevice `json:"filterdevices"`
+	} `json:"nodeconfig"`
+}
+
+type DeviceConfig struct {
+	*spec.Config
+
+	ResourceName *string
+	DebugMode    *bool
+}
+
+type NvidiaGPUDevices struct {
+	config NvidiaConfig
+}
+
+func InitNvidiaDevice(nvconfig NvidiaConfig) *NvidiaGPUDevices {
+	klog.InfoS("initializing nvidia device", "resourceName", nvconfig.ResourceCountName, "resourceMem", nvconfig.ResourceMemoryName, "DefaultGPUNum", nvconfig.DefaultGPUNum)
 	util.InRequestDevices[NvidiaGPUDevice] = "hami.io/vgpu-devices-to-allocate"
 	util.SupportDevices[NvidiaGPUDevice] = "hami.io/vgpu-devices-allocated"
 	util.HandshakeAnnos[NvidiaGPUDevice] = HandshakeAnnos
-	return &NvidiaGPUDevices{}
+	return &NvidiaGPUDevices{
+		config: nvconfig,
+	}
 }
 
 func (dev *NvidiaGPUDevices) CommonWord() string {
@@ -73,12 +151,35 @@ func (dev *NvidiaGPUDevices) CommonWord() string {
 }
 
 func ParseConfig(fs *flag.FlagSet) {
-	fs.StringVar(&ResourceName, "resource-name", "nvidia.com/gpu", "resource name")
-	fs.StringVar(&ResourceMem, "resource-mem", "nvidia.com/gpumem", "gpu memory to allocate")
-	fs.StringVar(&ResourceMemPercentage, "resource-mem-percentage", "nvidia.com/gpumem-percentage", "gpu memory fraction to allocate")
-	fs.StringVar(&ResourceCores, "resource-cores", "nvidia.com/gpucores", "cores percentage to use")
-	fs.StringVar(&ResourcePriority, "resource-priority", "vgputaskpriority", "vgpu task priority 0 for high and 1 for low")
-	fs.BoolVar(&OverwriteEnv, "overwrite-env", false, "If set NVIDIA_VISIBLE_DEVICES=none to pods with no-gpu allocation")
+}
+
+func FilterDeviceToRegister(uuid, indexStr string) bool {
+	if DevicePluginFilterDevice == nil || (len(DevicePluginFilterDevice.UUID) == 0 && len(DevicePluginFilterDevice.Index) == 0) {
+		return false
+	}
+	uuidMap, indexMap := make(map[string]struct{}), make(map[uint]struct{})
+	for _, u := range DevicePluginFilterDevice.UUID {
+		uuidMap[u] = struct{}{}
+	}
+	for _, index := range DevicePluginFilterDevice.Index {
+		indexMap[index] = struct{}{}
+	}
+	if uuid != "" {
+		if _, ok := uuidMap[uuid]; ok {
+			return true
+		}
+	}
+	if indexStr != "" {
+		index, err := strconv.Atoi(indexStr)
+		if err != nil {
+			klog.Errorf("Error converting index to int: %v", err)
+			return false
+		}
+		if _, ok := indexMap[uint(index)]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (dev *NvidiaGPUDevices) NodeCleanUp(nn string) error {
@@ -114,22 +215,40 @@ func (dev *NvidiaGPUDevices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) erro
 	if !found {
 		return nil
 	}
-	return nodelock.ReleaseNodeLock(n.Name, NodeLockNvidia)
+	return nodelock.ReleaseNodeLock(n.Name, NodeLockNvidia, p, false)
 }
 
-func (dev *NvidiaGPUDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, error) {
+func (dev *NvidiaGPUDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
 	devEncoded, ok := n.Annotations[RegisterAnnos]
 	if !ok {
-		return []*api.DeviceInfo{}, errors.New("annos not found " + RegisterAnnos)
+		return []*util.DeviceInfo{}, errors.New("annos not found " + RegisterAnnos)
 	}
 	nodedevices, err := util.DecodeNodeDevices(devEncoded)
 	if err != nil {
 		klog.ErrorS(err, "failed to decode node devices", "node", n.Name, "device annotation", devEncoded)
-		return []*api.DeviceInfo{}, err
+		return []*util.DeviceInfo{}, err
 	}
 	if len(nodedevices) == 0 {
-		klog.InfoS("no gpu device found", "node", n.Name, "device annotation", devEncoded)
-		return []*api.DeviceInfo{}, errors.New("no gpu found on node")
+		klog.InfoS("no nvidia gpu device found", "node", n.Name, "device annotation", devEncoded)
+		return []*util.DeviceInfo{}, errors.New("no gpu found on node")
+	}
+	for _, val := range nodedevices {
+		if val.Mode == "mig" {
+			val.MIGTemplate = make([]util.Geometry, 0)
+			for _, migTemplates := range dev.config.MigGeometriesList {
+				found := false
+				for _, migDevices := range migTemplates.Models {
+					if strings.Contains(val.Type, migDevices) {
+						found = true
+						break
+					}
+				}
+				if found {
+					val.MIGTemplate = append(val.MIGTemplate, migTemplates.Geometries...)
+					break
+				}
+			}
+		}
 	}
 	devDecoded := util.EncodeNodeDevices(nodedevices)
 	klog.V(5).InfoS("nodes device information", "node", n.Name, "nodedevices", devDecoded)
@@ -138,31 +257,39 @@ func (dev *NvidiaGPUDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, e
 
 func (dev *NvidiaGPUDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
 	/*gpu related */
-	priority, ok := ctr.Resources.Limits[corev1.ResourceName(ResourcePriority)]
+	priority, ok := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourcePriority)]
 	if ok {
 		ctr.Env = append(ctr.Env, corev1.EnvVar{
-			Name:  api.TaskPriority,
+			Name:  util.TaskPriority,
 			Value: fmt.Sprint(priority.Value()),
 		})
 	}
 
-	_, resourceNameOK := ctr.Resources.Limits[corev1.ResourceName(ResourceName)]
+	if dev.config.GPUCorePolicy != "" &&
+		dev.config.GPUCorePolicy != DefaultCorePolicy {
+		ctr.Env = append(ctr.Env, corev1.EnvVar{
+			Name:  util.CoreLimitSwitch,
+			Value: string(dev.config.GPUCorePolicy),
+		})
+	}
+
+	_, resourceNameOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCountName)]
 	if resourceNameOK {
 		return resourceNameOK, nil
 	}
 
-	_, resourceCoresOK := ctr.Resources.Limits[corev1.ResourceName(ResourceCores)]
-	_, resourceMemOK := ctr.Resources.Limits[corev1.ResourceName(ResourceMem)]
-	_, resourceMemPercentageOK := ctr.Resources.Limits[corev1.ResourceName(ResourceMemPercentage)]
+	_, resourceCoresOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCoreName)]
+	_, resourceMemOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceMemoryName)]
+	_, resourceMemPercentageOK := ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceMemoryPercentageName)]
 
 	if resourceCoresOK || resourceMemOK || resourceMemPercentageOK {
-		if config.DefaultResourceNum > 0 {
-			ctr.Resources.Limits[corev1.ResourceName(ResourceName)] = *resource.NewQuantity(int64(config.DefaultResourceNum), resource.BinarySI)
+		if dev.config.DefaultGPUNum > 0 {
+			ctr.Resources.Limits[corev1.ResourceName(dev.config.ResourceCountName)] = *resource.NewQuantity(int64(dev.config.DefaultGPUNum), resource.BinarySI)
 			resourceNameOK = true
 		}
 	}
 
-	if !resourceNameOK && OverwriteEnv {
+	if !resourceNameOK && dev.config.OverwriteEnv {
 		ctr.Env = append(ctr.Env, corev1.EnvVar{
 			Name:  "NVIDIA_VISIBLE_DEVICES",
 			Value: "none",
@@ -213,8 +340,13 @@ func assertNuma(annos map[string]string) bool {
 }
 
 func (dev *NvidiaGPUDevices) CheckType(annos map[string]string, d util.DeviceUsage, n util.ContainerDeviceRequest) (bool, bool, bool) {
+	Typecheck := checkGPUtype(annos, d.Type)
+	mode, ok := annos[AllocateMode]
+	if ok && !strings.Contains(mode, d.Mode) {
+		Typecheck = false
+	}
 	if strings.Compare(n.Type, NvidiaGPUDevice) == 0 {
-		return true, checkGPUtype(annos, d.Type), assertNuma(annos)
+		return true, Typecheck, assertNuma(annos)
 	}
 	return false, false, false
 }
@@ -262,10 +394,10 @@ func (dev *NvidiaGPUDevices) PatchAnnotations(annoinput *map[string]string, pd u
 }
 
 func (dev *NvidiaGPUDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
-	resourceName := corev1.ResourceName(ResourceName)
-	resourceMem := corev1.ResourceName(ResourceMem)
-	resourceMemPercentage := corev1.ResourceName(ResourceMemPercentage)
-	resourceCores := corev1.ResourceName(ResourceCores)
+	resourceName := corev1.ResourceName(dev.config.ResourceCountName)
+	resourceMem := corev1.ResourceName(dev.config.ResourceMemoryName)
+	resourceMemPercentage := corev1.ResourceName(dev.config.ResourceMemoryPercentageName)
+	resourceCores := corev1.ResourceName(dev.config.ResourceCoreName)
 	v, ok := ctr.Resources.Limits[resourceName]
 	if !ok {
 		v, ok = ctr.Resources.Requests[resourceName]
@@ -295,13 +427,13 @@ func (dev *NvidiaGPUDevices) GenerateResourceRequests(ctr *corev1.Container) uti
 				}
 			}
 			if mempnum == 101 && memnum == 0 {
-				if config.DefaultMem != 0 {
-					memnum = int(config.DefaultMem)
+				if dev.config.DefaultMemory != 0 {
+					memnum = int(dev.config.DefaultMemory)
 				} else {
 					mempnum = 100
 				}
 			}
-			corenum := config.DefaultCores
+			corenum := dev.config.DefaultCores
 			core, ok := ctr.Resources.Limits[resourceCores]
 			if !ok {
 				core, ok = ctr.Resources.Requests[resourceCores]
@@ -324,10 +456,118 @@ func (dev *NvidiaGPUDevices) GenerateResourceRequests(ctr *corev1.Container) uti
 	return util.ContainerDeviceRequest{}
 }
 
-func (dev *NvidiaGPUDevices) CustomFilterRule(allocated *util.PodDevices, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
+func (dev *NvidiaGPUDevices) CustomFilterRule(allocated *util.PodDevices, request util.ContainerDeviceRequest, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
+	//memreq := request.Memreq
+	deviceUsageSnapshot := device.MigUsage
+	deviceUsageCurrent := util.MigInUse{
+		UsageList: make(util.MIGS, 0),
+	}
+	deviceUsageCurrent.UsageList = append(deviceUsageCurrent.UsageList, deviceUsageSnapshot.UsageList...)
+	if device.Mode == "mig" {
+		if len(deviceUsageCurrent.UsageList) == 0 {
+			tmpfound := false
+			for tidx, templates := range device.MigTemplate {
+				if templates[0].Memory < request.Memreq {
+					continue
+				} else {
+					util.PlatternMIG(&deviceUsageCurrent, device.MigTemplate, tidx)
+					tmpfound = true
+					break
+				}
+			}
+			if !tmpfound {
+				klog.Infoln("MIG entry no template fit", deviceUsageCurrent.UsageList, "request=", request)
+			}
+		}
+		for _, val := range toAllocate {
+			found := false
+			for idx := range deviceUsageCurrent.UsageList {
+				if !deviceUsageCurrent.UsageList[idx].InUse && deviceUsageCurrent.UsageList[idx].Memory > val.Usedmem {
+					deviceUsageCurrent.UsageList[idx].InUse = true
+					found = true
+					break
+				}
+			}
+			if !found {
+				klog.Infoln("MIG entry not found", deviceUsageCurrent.UsageList)
+				return false
+			}
+		}
+		for idx := range deviceUsageCurrent.UsageList {
+			if !deviceUsageCurrent.UsageList[idx].InUse && deviceUsageCurrent.UsageList[idx].Memory > request.Memreq {
+				deviceUsageCurrent.UsageList[idx].InUse = true
+				klog.Infoln("MIG entry device usage true=", deviceUsageCurrent.UsageList, "request", request, "toAllocate", toAllocate)
+				return true
+			}
+		}
+		klog.Infoln("MIG entry device usage false=", deviceUsageCurrent.UsageList)
+		return false
+	}
 	return true
 }
 
 func (dev *NvidiaGPUDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, policy string) float32 {
 	return 0
+}
+
+func (dev *NvidiaGPUDevices) migNeedsReset(n *util.DeviceUsage) bool {
+	if len(n.MigUsage.UsageList) == 0 {
+		return true
+	}
+	for _, val := range n.MigUsage.UsageList {
+		if val.InUse {
+			return false
+		}
+	}
+	n.MigUsage.UsageList = make(util.MIGS, 0)
+	return true
+}
+
+func (dev *NvidiaGPUDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+	n.Used++
+	if n.Mode == "mig" {
+		if dev.migNeedsReset(n) {
+			for tidx, templates := range n.MigTemplate {
+				if templates[0].Memory < ctr.Usedmem {
+					continue
+				} else {
+					util.PlatternMIG(&n.MigUsage, n.MigTemplate, tidx)
+					ctr.Usedmem = n.MigUsage.UsageList[0].Memory
+					if !strings.Contains(ctr.UUID, "[") {
+						ctr.UUID = ctr.UUID + "[" + fmt.Sprint(tidx) + "-0]"
+					}
+					n.MigUsage.Index = int32(tidx)
+					n.MigUsage.UsageList[0].InUse = true
+					break
+				}
+			}
+		} else {
+			found := false
+			for idx, val := range n.MigUsage.UsageList {
+				if !val.InUse && val.Memory > ctr.Usedmem {
+					n.MigUsage.UsageList[idx].InUse = true
+					ctr.Usedmem = n.MigUsage.UsageList[idx].Memory
+					if !strings.Contains(ctr.UUID, "[") {
+						ctr.UUID = ctr.UUID + "[" + fmt.Sprint(n.MigUsage.Index) + "-" + fmt.Sprint(idx) + "]"
+					}
+					found = true
+					break
+				}
+			}
+			if !found {
+				return errors.New("mig template allocate resource fail")
+			}
+		}
+	}
+	n.Usedcores += ctr.Usedcores
+	n.Usedmem += ctr.Usedmem
+	return nil
+}
+
+func (dev *NvidiaGPUDevices) GetResourceNames() util.ResoureNames {
+	return util.ResoureNames{
+		ResourceCountName:  dev.config.ResourceCountName,
+		ResourceMemoryName: dev.config.ResourceMemoryName,
+		ResourceCoreName:   dev.config.ResourceCoreName,
+	}
 }

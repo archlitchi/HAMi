@@ -21,8 +21,8 @@ import (
 	"flag"
 	"strings"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
 	"github.com/Project-HAMi/HAMi/pkg/util"
+	"github.com/Project-HAMi/HAMi/pkg/util/nodelock"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
@@ -42,6 +42,11 @@ const (
 	DCUUseUUID = "hygon.com/use-gpuuuid"
 	// DCUNoUseUUID is user can not use specify DCU device for set DCU UUID.
 	DCUNoUseUUID = "hygon.com/nouse-gpuuuid"
+
+	// NodeLockDCU should same with device plugin node lock name
+	// there is a bug with nodelock package utils, the key is hard coded as "hami.io/mutex.lock"
+	// so we can only use this value now.
+	NodeLockDCU = "hami.io/mutex.lock"
 )
 
 var (
@@ -50,7 +55,16 @@ var (
 	HygonResourceCores  string
 )
 
-func InitDCUDevice() *DCUDevices {
+type HygonConfig struct {
+	ResourceCountName  string `yaml:"resourceCountName"`
+	ResourceMemoryName string `yaml:"resourceMemoryName"`
+	ResourceCoreName   string `yaml:"resourceCoreName"`
+}
+
+func InitDCUDevice(config HygonConfig) *DCUDevices {
+	HygonResourceCount = config.ResourceCountName
+	HygonResourceMemory = config.ResourceMemoryName
+	HygonResourceCores = config.ResourceCoreName
 	util.InRequestDevices[HygonDCUDevice] = "hami.io/dcu-devices-to-allocate"
 	util.SupportDevices[HygonDCUDevice] = "hami.io/dcu-devices-allocated"
 	util.HandshakeAnnos[HygonDCUDevice] = HandshakeAnnos
@@ -105,26 +119,46 @@ func checkDCUtype(annos map[string]string, cardtype string) bool {
 }
 
 func (dev *DCUDevices) LockNode(n *corev1.Node, p *corev1.Pod) error {
-	return nil
+	found := false
+	for _, val := range p.Spec.Containers {
+		if (dev.GenerateResourceRequests(&val).Nums) > 0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	return nodelock.LockNode(n.Name, NodeLockDCU, p)
 }
 
 func (dev *DCUDevices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) error {
-	return nil
+	found := false
+	for _, val := range p.Spec.Containers {
+		if (dev.GenerateResourceRequests(&val).Nums) > 0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+	return nodelock.ReleaseNodeLock(n.Name, NodeLockDCU, p, false)
 }
 
-func (dev *DCUDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, error) {
+func (dev *DCUDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
 	devEncoded, ok := n.Annotations[RegisterAnnos]
 	if !ok {
-		return []*api.DeviceInfo{}, errors.New("annos not found " + RegisterAnnos)
+		return []*util.DeviceInfo{}, errors.New("annos not found " + RegisterAnnos)
 	}
 	nodedevices, err := util.DecodeNodeDevices(devEncoded)
 	if err != nil {
 		klog.ErrorS(err, "failed to decode node devices", "node", n.Name, "device annotation", devEncoded)
-		return []*api.DeviceInfo{}, err
+		return []*util.DeviceInfo{}, err
 	}
 	if len(nodedevices) == 0 {
 		klog.InfoS("no gpu device found", "node", n.Name, "device annotation", devEncoded)
-		return []*api.DeviceInfo{}, errors.New("no gpu found on node")
+		return []*util.DeviceInfo{}, errors.New("no gpu found on node")
 	}
 	devDecoded := util.EncodeNodeDevices(nodedevices)
 	klog.V(5).InfoS("nodes device information", "node", n.Name, "nodedevices", devDecoded)
@@ -176,14 +210,15 @@ func (dev *DCUDevices) CheckUUID(annos map[string]string, d util.DeviceUsage) bo
 }
 
 func (dev *DCUDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
-	klog.Info("Counting dcu devices")
+	klog.Info("Start to count dcu devices for container ", ctr.Name)
 	dcuResourceCount := corev1.ResourceName(HygonResourceCount)
 	dcuResourceMem := corev1.ResourceName(HygonResourceMemory)
 	dcuResourceCores := corev1.ResourceName(HygonResourceCores)
 	v, ok := ctr.Resources.Limits[dcuResourceCount]
 	if !ok {
 		v, ok = ctr.Resources.Requests[dcuResourceCount]
-	} else {
+	}
+	if ok {
 		if n, ok := v.AsInt64(); ok {
 			klog.Info("Found dcu devices")
 			memnum := 0
@@ -238,10 +273,25 @@ func (dev *DCUDevices) PatchAnnotations(annoinput *map[string]string, pd util.Po
 	return *annoinput
 }
 
-func (dev *DCUDevices) CustomFilterRule(allocated *util.PodDevices, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
+func (dev *DCUDevices) CustomFilterRule(allocated *util.PodDevices, request util.ContainerDeviceRequest, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
 	return true
 }
 
 func (dev *DCUDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, policy string) float32 {
 	return 0
+}
+
+func (dev *DCUDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+	n.Used++
+	n.Usedcores += ctr.Usedcores
+	n.Usedmem += ctr.Usedmem
+	return nil
+}
+
+func (dev *DCUDevices) GetResourceNames() util.ResoureNames {
+	return util.ResoureNames{
+		ResourceCountName:  HygonResourceCount,
+		ResourceMemoryName: HygonResourceMemory,
+		ResourceCoreName:   HygonResourceCores,
+	}
 }

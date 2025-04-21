@@ -30,6 +30,7 @@ import (
 
 	v0 "github.com/Project-HAMi/HAMi/pkg/monitor/nvidia/v0"
 	v1 "github.com/Project-HAMi/HAMi/pkg/monitor/nvidia/v1"
+	"github.com/Project-HAMi/HAMi/pkg/util"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -55,9 +56,11 @@ type UsageInfo interface {
 	DeviceMemoryOffset(idx int) uint64
 	DeviceMemoryTotal(idx int) uint64
 	DeviceSmUtil(idx int) uint64
+	SetDeviceSmLimit(l uint64)
 	IsValidUUID(idx int) bool
 	DeviceUUID(idx int) string
 	DeviceMemoryLimit(idx int) uint64
+	SetDeviceMemoryLimit(l uint64)
 	LastKernelTime() int64
 	//UsedMemory(idx int) (uint64, error)
 	GetPriority() int
@@ -120,7 +123,13 @@ func (l *ContainerLister) Clientset() *kubernetes.Clientset {
 }
 
 func (l *ContainerLister) Update() error {
-	pods, err := l.clientset.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{})
+	nodename := os.Getenv(util.NodeNameEnvName)
+	if nodename == "" {
+		return fmt.Errorf("env %s not set", util.NodeNameEnvName)
+	}
+	pods, err := l.clientset.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodename),
+	})
 	if err != nil {
 		return err
 	}

@@ -26,11 +26,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
 	"github.com/Project-HAMi/HAMi/pkg/util/client"
 	"github.com/Project-HAMi/HAMi/pkg/util/nodelock"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
@@ -57,8 +57,29 @@ func init() {
 }
 
 func GetNode(nodename string) (*corev1.Node, error) {
+	if nodename == "" {
+		klog.ErrorS(nil, "Node name is empty")
+		return nil, fmt.Errorf("nodename is empty")
+	}
+
+	klog.InfoS("Fetching node", "nodeName", nodename)
 	n, err := client.GetClient().CoreV1().Nodes().Get(context.Background(), nodename, metav1.GetOptions{})
-	return n, err
+	if err != nil {
+		switch {
+		case apierrors.IsNotFound(err):
+			klog.ErrorS(err, "Node not found", "nodeName", nodename)
+			return nil, fmt.Errorf("node %s not found", nodename)
+		case apierrors.IsUnauthorized(err):
+			klog.ErrorS(err, "Unauthorized to access node", "nodeName", nodename)
+			return nil, fmt.Errorf("unauthorized to access node %s", nodename)
+		default:
+			klog.ErrorS(err, "Failed to get node", "nodeName", nodename)
+			return nil, fmt.Errorf("failed to get node %s: %v", nodename, err)
+		}
+	}
+
+	klog.InfoS("Successfully fetched node", "nodeName", nodename)
+	return n, nil
 }
 
 func GetPendingPod(ctx context.Context, node string) (*corev1.Pod, error) {
@@ -122,22 +143,28 @@ func GetAllocatePodByNode(ctx context.Context, nodeName string) (*corev1.Pod, er
 	return nil, nil
 }
 
-func DecodeNodeDevices(str string) ([]*api.DeviceInfo, error) {
+func DecodeNodeDevices(str string) ([]*DeviceInfo, error) {
 	if !strings.Contains(str, OneContainerMultiDeviceSplitSymbol) {
-		return []*api.DeviceInfo{}, errors.New("node annotations not decode successfully")
+		return []*DeviceInfo{}, errors.New("node annotations not decode successfully")
 	}
 	tmp := strings.Split(str, OneContainerMultiDeviceSplitSymbol)
-	var retval []*api.DeviceInfo
+	var retval []*DeviceInfo
 	for _, val := range tmp {
 		if strings.Contains(val, ",") {
 			items := strings.Split(val, ",")
-			if len(items) == 7 {
+			if len(items) == 7 || len(items) == 9 {
 				count, _ := strconv.ParseInt(items[1], 10, 32)
 				devmem, _ := strconv.ParseInt(items[2], 10, 32)
 				devcore, _ := strconv.ParseInt(items[3], 10, 32)
 				health, _ := strconv.ParseBool(items[6])
 				numa, _ := strconv.Atoi(items[5])
-				i := api.DeviceInfo{
+				mode := "hami-core"
+				index := 0
+				if len(items) == 9 {
+					index, _ = strconv.Atoi(items[7])
+					mode = items[8]
+				}
+				i := DeviceInfo{
 					ID:      items[0],
 					Count:   int32(count),
 					Devmem:  int32(devmem),
@@ -145,26 +172,47 @@ func DecodeNodeDevices(str string) ([]*api.DeviceInfo, error) {
 					Type:    items[4],
 					Numa:    numa,
 					Health:  health,
+					Mode:    mode,
+					Index:   uint(index),
 				}
 				retval = append(retval, &i)
 			} else {
-				return []*api.DeviceInfo{}, errors.New("node annotations not decode successfully")
+				return []*DeviceInfo{}, errors.New("node annotations not decode successfully")
 			}
 		}
 	}
 	return retval, nil
 }
 
-func EncodeNodeDevices(dlist []*api.DeviceInfo) string {
-	tmp := ""
+func EncodeNodeDevices(dlist []*DeviceInfo) string {
+	builder := strings.Builder{}
 	for _, val := range dlist {
-		tmp += val.ID + "," + strconv.FormatInt(int64(val.Count), 10) + "," + strconv.Itoa(int(val.Devmem)) + "," + strconv.Itoa(int(val.Devcore)) + "," + val.Type + "," + strconv.Itoa(val.Numa) + "," + strconv.FormatBool(val.Health) + OneContainerMultiDeviceSplitSymbol
+		builder.WriteString(val.ID)
+		builder.WriteString(",")
+		builder.WriteString(strconv.FormatInt(int64(val.Count), 10))
+		builder.WriteString(",")
+		builder.WriteString(strconv.Itoa(int(val.Devmem)))
+		builder.WriteString(",")
+		builder.WriteString(strconv.Itoa(int(val.Devcore)))
+		builder.WriteString(",")
+		builder.WriteString(val.Type)
+		builder.WriteString(",")
+		builder.WriteString(strconv.Itoa(val.Numa))
+		builder.WriteString(",")
+		builder.WriteString(strconv.FormatBool(val.Health))
+		builder.WriteString(",")
+		builder.WriteString(strconv.Itoa(int(val.Index)))
+		builder.WriteString(",")
+		builder.WriteString(val.Mode)
+		builder.WriteString(OneContainerMultiDeviceSplitSymbol)
+		//tmp += val.ID + "," + strconv.FormatInt(int64(val.Count), 10) + "," + strconv.Itoa(int(val.Devmem)) + "," + strconv.Itoa(int(val.Devcore)) + "," + val.Type + "," + strconv.Itoa(val.Numa) + "," + strconv.FormatBool(val.Health) + "," + strconv.Itoa(val.Index) + OneContainerMultiDeviceSplitSymbol
 	}
-	klog.Infof("Encoded node Devices: %s", tmp)
+	tmp := builder.String()
+	klog.V(5).Infof("Encoded node Devices: %s", tmp)
 	return tmp
 }
 
-func MarshalNodeDevices(dlist []*api.DeviceInfo) string {
+func MarshalNodeDevices(dlist []*DeviceInfo) string {
 	data, err := json.Marshal(dlist)
 	if err != nil {
 		return ""
@@ -172,8 +220,8 @@ func MarshalNodeDevices(dlist []*api.DeviceInfo) string {
 	return string(data)
 }
 
-func UnMarshalNodeDevices(str string) ([]*api.DeviceInfo, error) {
-	var dlist []*api.DeviceInfo
+func UnMarshalNodeDevices(str string) ([]*DeviceInfo, error) {
+	var dlist []*DeviceInfo
 	err := json.Unmarshal([]byte(str), &dlist)
 	return dlist, err
 }
@@ -278,63 +326,6 @@ func DecodePodDevices(checklist map[string]string, annos map[string]string) (Pod
 	return pd, nil
 }
 
-func GetNextDeviceRequest(dtype string, p corev1.Pod) (corev1.Container, ContainerDevices, error) {
-	pdevices, err := DecodePodDevices(InRequestDevices, p.Annotations)
-	if err != nil {
-		return corev1.Container{}, ContainerDevices{}, err
-	}
-	klog.Infof("pod annotation decode vaule is %+v", pdevices)
-	res := ContainerDevices{}
-
-	pd, ok := pdevices[dtype]
-	if !ok {
-		return corev1.Container{}, res, errors.New("device request not found")
-	}
-	for ctridx, ctrDevice := range pd {
-		if len(ctrDevice) > 0 {
-			return p.Spec.Containers[ctridx], ctrDevice, nil
-		}
-	}
-	return corev1.Container{}, res, errors.New("device request not found")
-}
-
-func GetContainerDeviceStrArray(c ContainerDevices) []string {
-	tmp := []string{}
-	for _, val := range c {
-		tmp = append(tmp, val.UUID)
-	}
-	return tmp
-}
-
-func EraseNextDeviceTypeFromAnnotation(dtype string, p corev1.Pod) error {
-	pdevices, err := DecodePodDevices(InRequestDevices, p.Annotations)
-	if err != nil {
-		return err
-	}
-	res := PodSingleDevice{}
-	pd, ok := pdevices[dtype]
-	if !ok {
-		return errors.New("erase device annotation not found")
-	}
-	found := false
-	for _, val := range pd {
-		if found {
-			res = append(res, val)
-		} else {
-			if len(val) > 0 {
-				found = true
-				res = append(res, ContainerDevices{})
-			} else {
-				res = append(res, val)
-			}
-		}
-	}
-	klog.Infoln("After erase res=", res)
-	newannos := make(map[string]string)
-	newannos[InRequestDevices[dtype]] = EncodePodSingleDevice(res)
-	return PatchPodAnnotations(&p, newannos)
-}
-
 func PatchNodeAnnotations(node *corev1.Node, annotations map[string]string) error {
 	type patchMetadata struct {
 		Annotations map[string]string `json:"annotations,omitempty"`
@@ -363,6 +354,7 @@ func PatchNodeAnnotations(node *corev1.Node, annotations map[string]string) erro
 func PatchPodAnnotations(pod *corev1.Pod, annotations map[string]string) error {
 	type patchMetadata struct {
 		Annotations map[string]string `json:"annotations,omitempty"`
+		Labels      map[string]string `json:"labels,omitempty"`
 	}
 	type patchPod struct {
 		Metadata patchMetadata `json:"metadata"`
@@ -371,6 +363,11 @@ func PatchPodAnnotations(pod *corev1.Pod, annotations map[string]string) error {
 
 	p := patchPod{}
 	p.Metadata.Annotations = annotations
+	label := make(map[string]string)
+	if v, ok := annotations[AssignedNodeAnnotations]; ok && v != "" {
+		label[AssignedNodeAnnotations] = v
+		p.Metadata.Labels = label
+	}
 
 	bytes, err := json.Marshal(p)
 	if err != nil {
@@ -396,7 +393,7 @@ func InitKlogFlags() *flag.FlagSet {
 func CheckHealth(devType string, n *corev1.Node) (bool, bool) {
 	handshake := n.Annotations[HandshakeAnnos[devType]]
 	if strings.Contains(handshake, "Requesting") {
-		formertime, _ := time.Parse("2006.01.02 15:04:05", strings.Split(handshake, "_")[1])
+		formertime, _ := time.Parse(time.DateTime, strings.Split(handshake, "_")[1])
 		return time.Now().Before(formertime.Add(time.Second * 60)), false
 	} else if strings.Contains(handshake, "Deleted") {
 		return true, false
@@ -407,7 +404,7 @@ func CheckHealth(devType string, n *corev1.Node) (bool, bool) {
 
 func MarkAnnotationsToDelete(devType string, nn string) error {
 	tmppat := make(map[string]string)
-	tmppat[devType] = "Deleted_" + time.Now().Format("2006.01.02 15:04:05")
+	tmppat[devType] = "Deleted_" + time.Now().Format(time.DateTime)
 	n, err := GetNode(nn)
 	if err != nil {
 		klog.Errorln("get node failed", err.Error())
@@ -416,31 +413,49 @@ func MarkAnnotationsToDelete(devType string, nn string) error {
 	return PatchNodeAnnotations(n, tmppat)
 }
 
-func FilterDeviceToRegister(uuid, indexStr string) bool {
-	if DevicePluginFilterDevice == nil || (len(DevicePluginFilterDevice.UUID) == 0 && len(DevicePluginFilterDevice.Index) == 0) {
-		return false
+// Enhanced ExtractMigTemplatesFromUUID with error handling.
+func ExtractMigTemplatesFromUUID(uuid string) (int, int, error) {
+	parts := strings.Split(uuid, "[")
+	if len(parts) < 2 {
+		return -1, -1, fmt.Errorf("invalid UUID format: missing '[' delimiter")
 	}
-	uuidMap, indexMap := make(map[string]struct{}), make(map[uint]struct{})
-	for _, u := range DevicePluginFilterDevice.UUID {
-		uuidMap[u] = struct{}{}
+
+	tmp := parts[1]
+	parts = strings.Split(tmp, "]")
+	if len(parts) < 2 {
+		return -1, -1, fmt.Errorf("invalid UUID format: missing ']' delimiter")
 	}
-	for _, index := range DevicePluginFilterDevice.Index {
-		indexMap[index] = struct{}{}
+
+	tmp = parts[0]
+	parts = strings.Split(tmp, "-")
+	if len(parts) < 2 {
+		return -1, -1, fmt.Errorf("invalid UUID format: missing '-' delimiter")
 	}
-	if uuid != "" {
-		if _, ok := uuidMap[uuid]; ok {
-			return true
+
+	templateIdx, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return -1, -1, fmt.Errorf("invalid template index: %v", err)
+	}
+
+	pos, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return -1, -1, fmt.Errorf("invalid position: %v", err)
+	}
+
+	return templateIdx, pos, nil
+}
+
+func PlatternMIG(n *MigInUse, templates []Geometry, templateIdx int) {
+	for _, val := range templates[templateIdx] {
+		count := 0
+		for count < int(val.Count) {
+			n.Index = int32(templateIdx)
+			n.UsageList = append(n.UsageList, MigTemplateUsage{
+				Name:   val.Name,
+				Memory: val.Memory,
+				InUse:  false,
+			})
+			count++
 		}
 	}
-	if indexStr != "" {
-		index, err := strconv.Atoi(indexStr)
-		if err != nil {
-			klog.Errorf("Error converting index to int: %v", err)
-			return false
-		}
-		if _, ok := indexMap[uint(index)]; ok {
-			return true
-		}
-	}
-	return false
 }

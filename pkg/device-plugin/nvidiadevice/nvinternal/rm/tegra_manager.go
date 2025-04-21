@@ -1,25 +1,41 @@
-/**
-# Copyright (c) 2022, NVIDIA CORPORATION.  All rights reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-**/
+/*
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * The HAMi Contributors require contributions made to
+ * this file be licensed under the Apache-2.0 license or a
+ * compatible open source license.
+ */
+
+/*
+ * Licensed to NVIDIA CORPORATION under one or more contributor
+ * license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright
+ * ownership. NVIDIA CORPORATION licenses this file to you under
+ * the Apache License, Version 2.0 (the "License"); you may
+ * not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+/*
+ * Modifications Copyright The HAMi Authors. See
+ * GitHub history for details.
+ */
 
 package rm
 
 import (
 	"fmt"
 
-	"github.com/Project-HAMi/HAMi/pkg/util"
+	"github.com/Project-HAMi/HAMi/pkg/device/nvidia"
 )
 
 type tegraResourceManager struct {
@@ -29,7 +45,7 @@ type tegraResourceManager struct {
 var _ ResourceManager = (*tegraResourceManager)(nil)
 
 // NewTegraResourceManagers returns a set of ResourceManagers for tegra resources
-func NewTegraResourceManagers(config *util.DeviceConfig) ([]ResourceManager, error) {
+func NewTegraResourceManagers(config *nvidia.DeviceConfig) ([]ResourceManager, error) {
 	deviceMap, err := buildTegraDeviceMap(config)
 	if err != nil {
 		return nil, fmt.Errorf("error building Tegra device map: %v", err)
@@ -71,6 +87,6 @@ func (r *tegraResourceManager) GetDevicePaths(ids []string) []string {
 }
 
 // CheckHealth is disabled for the tegraResourceManager
-func (r *tegraResourceManager) CheckHealth(stop <-chan interface{}, unhealthy chan<- *Device) error {
+func (r *tegraResourceManager) CheckHealth(stop <-chan any, unhealthy chan<- *Device) error {
 	return nil
 }

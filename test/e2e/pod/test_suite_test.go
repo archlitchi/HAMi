@@ -14,9 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package api
+package e2e
 
-const (
-	TaskPriority    = "CUDA_TASK_PRIORITY"
-	CoreLimitSwitch = "GPU_CORE_UTILIZATION_POLICY"
+import (
+	"flag"
+	"testing"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 )
+
+func init() {
+	testing.Init()
+	flag.Parse()
+}
+
+func TestInit(t *testing.T) {
+	gomega.RegisterFailHandler(ginkgo.Fail)
+	ginkgo.RunSpecs(t, "Test pod")
+}

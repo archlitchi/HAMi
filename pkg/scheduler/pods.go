@@ -36,12 +36,10 @@ type podInfo struct {
 	CtrIDs    []string
 }
 
-// PodUseDeviceStat count pod use device info.
+// PodUseDeviceStat counts pod use device info.
 type PodUseDeviceStat struct {
-	// count current node all running success pod num
-	TotalPod int
-	// only running success pod and use device pod can count.
-	UseDevicePod int
+	TotalPod     int // Count of all running pods on the current node
+	UseDevicePod int // Count of running pods that use devices
 }
 
 type podManager struct {
@@ -49,37 +47,66 @@ type podManager struct {
 	mutex sync.RWMutex
 }
 
-func (m *podManager) init() {
-	m.pods = make(map[k8stypes.UID]*podInfo)
+func newPodManager() *podManager {
+	pm := &podManager{
+		pods: make(map[k8stypes.UID]*podInfo),
+	}
+	klog.InfoS("Pod manager initialized", "podCount", len(pm.pods))
+	return pm
 }
 
 func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevices) bool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	_, ok := m.pods[pod.UID]
-	if !ok {
-		pi := &podInfo{Name: pod.Name, UID: pod.UID, Namespace: pod.Namespace, NodeID: nodeID, Devices: devices}
+
+	_, exists := m.pods[pod.UID]
+	if !exists {
+		pi := &podInfo{
+			Name:      pod.Name,
+			UID:       pod.UID,
+			Namespace: pod.Namespace,
+			NodeID:    nodeID,
+			Devices:   devices,
+		}
 		m.pods[pod.UID] = pi
-		klog.Infof("Pod added: Name: %s, UID: %s, Namespace: %s, NodeID: %s", pod.Name, pod.UID, pod.Namespace, nodeID)
-		return true
+		klog.InfoS("Pod added",
+			"pod", klog.KRef(pod.Namespace, pod.Name),
+			"nodeID", nodeID,
+			"devices", devices,
+		)
+	} else {
+		m.pods[pod.UID].Devices = devices
+		klog.InfoS("Pod devices updated",
+			"pod", klog.KRef(pod.Namespace, pod.Name),
+			"devices", devices,
+		)
 	}
 	return false
 }
 
-func (m *podManager) deletePod(pod *corev1.Pod) bool {
-	pi, ok := m.pods[pod.UID]
-	if ok {
-		klog.Infof("Deleted pod %s with node ID %s", pi.Name, pi.NodeID)
+func (m *podManager) delPod(pod *corev1.Pod) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	pi, exists := m.pods[pod.UID]
+	if exists {
+		klog.InfoS("Pod deleted",
+			"pod", klog.KRef(pod.Namespace, pod.Name),
+			"nodeID", pi.NodeID,
+		)
 		delete(m.pods, pod.UID)
-		return true
+	} else {
+		klog.InfoS("Pod not found for deletion",
+			"pod", klog.KRef(pod.Namespace, pod.Name),
+		)
 	}
-	return false
 }
 
 func (m *podManager) ListPodsUID() ([]*corev1.Pod, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	pods := make([]*corev1.Pod, 0)
+
+	pods := make([]*corev1.Pod, 0, len(m.pods))
 	for uid := range m.pods {
 		pods = append(pods, &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
@@ -87,23 +114,38 @@ func (m *podManager) ListPodsUID() ([]*corev1.Pod, error) {
 			},
 		})
 	}
+	klog.InfoS("Listed pod UIDs",
+		"podCount", len(pods),
+	)
 	return pods, nil
 }
 
 func (m *podManager) ListPodsInfo() []*podInfo {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	pods := make([]*podInfo, 0)
-	for key := range m.pods {
-		values := m.pods[key]
-		pods = append(pods, values)
+
+	pods := make([]*podInfo, 0, len(m.pods))
+	for _, pod := range m.pods {
+		pods = append(pods, pod)
+		klog.V(5).InfoS("Pod info",
+			"pod", klog.KRef(pod.Namespace, pod.Name),
+			"nodeID", pod.NodeID,
+			"devices", pod.Devices,
+		)
 	}
+	klog.V(5).InfoS("Listed pod infos",
+		"podCount", len(pods),
+	)
 	return pods
 }
 
 func (m *podManager) GetScheduledPods() (map[k8stypes.UID]*podInfo, error) {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	klog.Infof("Getting all scheduled pods with %d nums", len(m.pods))
+
+	podCount := len(m.pods)
+	klog.InfoS("Retrieved scheduled pods",
+		"podCount", podCount,
+	)
 	return m.pods, nil
 }

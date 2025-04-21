@@ -2,8 +2,9 @@
 
 nameOverride: ""
 fullnameOverride: ""
+namespaceOverride: ""
 imagePullSecrets: [ ]
-version: "v2.4.0"
+version: "v2.5.0"
 
 #Nvidia GPU Parameters
 resourceName: "nvidia.com/gpu"
@@ -27,6 +28,11 @@ iluvatarResourceName: "iluvatar.ai/vgpu"
 iluvatarResourceMem: "iluvatar.ai/vcuda-memory"
 iluvatarResourceCore: "iluvatar.ai/vcuda-core"
 
+#Metax SGPU Parameters
+metaxResourceName: "metax-tech.com/sgpu"
+metaxResourceCore: "metax-tech.com/vcore"
+metaxResourceMem: "metax-tech.com/vmemory"
+
 schedulerName: "hami-scheduler"
 
 podSecurityPolicy:
@@ -46,11 +52,8 @@ scheduler:
   # if we install the nvidia-vgpu-scheduler-scheduler as default scheduler, we need to remove the k8s default
   # scheduler pod from the cluster first, we must specify node name to skip the schedule workflow.
   nodeName: ""
-#  nodeLabelSelector:
-#    "gpu": "on"
-  defaultMem: 0
-  defaultCores: 0
-  defaultGPUNum: 1
+  #nodeLabelSelector:
+  #  "gpu": "on"
   overwriteEnv: "false"
   defaultSchedulerPolicy:
     nodeSchedulerPolicy: binpack
@@ -58,12 +61,23 @@ scheduler:
   metricsBindAddress: ":9395"
   livenessProbe: false
   leaderElect: true
+  # when leaderElect is true, replicas is available, otherwise replicas is 1.
+  replicas: 1
   kubeScheduler:
     # @param enabled indicate whether to run kube-scheduler container in the scheduler pod, it's true by default.
     enabled: true
-    imageTag: "v1.20.0"
     image: registry.cn-hangzhou.aliyuncs.com/google_containers/kube-scheduler
+    imageTag: ""
     imagePullPolicy: IfNotPresent
+    resources: {}
+      # If you do want to specify resources, uncomment the following lines, adjust them as necessary.
+      # and remove the curly braces after 'resources:'.
+#      limits:
+#        cpu: 1000m
+#        memory: 1000Mi
+#      requests:
+#        cpu: 100m
+#        memory: 100Mi
     extraNewArgs:
       - --config=/config/config.yaml
       - -v=4
@@ -73,6 +87,15 @@ scheduler:
   extender:
     image: "projecthami/hami"
     imagePullPolicy: IfNotPresent
+    resources: {}
+      # If you do want to specify resources, uncomment the following lines, adjust them as necessary,
+      # and remove the curly braces after 'resources:'.
+#      limits:
+#        cpu: 1000m
+#        memory: 1000Mi
+#      requests:
+#        cpu: 100m
+#        memory: 100Mi
     extraArgs:
       - --debug
       - -v=4
@@ -94,7 +117,14 @@ scheduler:
       # - istio-system
     reinvocationPolicy: Never
     failurePolicy: Ignore
+  ## TLS Certificate Option 1: Use cert-manager to generate self-signed certificate.
+  ## If enabled, always takes precedence over options 2.
+  certManager:
+    enabled: false
+  ## TLS Certificate Option 2: Use kube-webhook-certgen to generate self-signed certificate.
+  ## If true and certManager.enabled is false, Helm will automatically create a self-signed cert and secret for you.
   patch:
+    enabled: true
     image: docker.io/jettech/kube-webhook-certgen:v1.5.2
     imageNew: liangjw/kube-webhook-certgen:v1.1.1
     imagePullPolicy: IfNotPresent
@@ -104,9 +134,10 @@ scheduler:
     tolerations: []
     runAsUser: 2000
   service:
-    httpPort: 443
-    schedulerPort: 31998
-    monitorPort: 31993
+    type: NodePort  # Default type is NodePort, can be changed to ClusterIP
+    httpPort: 443   # HTTP port
+    schedulerPort: 31998  # NodePort for HTTP
+    monitorPort: 31993    # Monitoring port
     labels: {}
     annotations: {}
 
@@ -121,11 +152,15 @@ devicePlugin:
   runtimeClassName: ""
   migStrategy: "none"
   disablecorelimit: "false"
+  passDeviceSpecsEnabled: false
   extraArgs:
-    - -v=false
+    - -v=4
   
   service:
+    type: NodePort  # Default type is NodePort, can be changed to ClusterIP
     httpPort: 31992
+    labels: {}
+    annotations: {}
     
   pluginPath: /var/lib/kubelet/device-plugins
   libPath: /usr/local/vgpu
@@ -134,12 +169,43 @@ devicePlugin:
   nvidianodeSelector:
     gpu: "on"
   tolerations: []
+  # The updateStrategy for DevicePlugin DaemonSet.
+  # If you want to update the DaemonSet by manual, set type as "OnDelete".
+  # We recommend use OnDelete update strategy because DevicePlugin pod restart will cause business pod restart, this behavior is destructive.
+  # Otherwise, you can use RollingUpdate update strategy to rolling update DevicePlugin pod.
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+
+  resources: {}
+    # If you do want to specify resources, uncomment the following lines, adjust them as necessary.
+    # and remove the curly braces after 'resources:'.
+#    limits:
+#       cpu: 1000m
+#       memory: 1000Mi
+#    requests:
+#      cpu: 100m
+#      memory: 100Mi
+
+  vgpuMonitor:
+    resources: {}
+      # If you do want to specify resources, uncomment the following lines, adjust them as necessary.
+      # and remove the curly braces after 'resources:'.
+#      limits:
+#        cpu: 1000m
+#        memory: 1000Mi
+#      requests:
+#        cpu: 100m
+#        memory: 100Mi
 
 devices:
   mthreads:
     enabled: false
-    resources:
+    customresources:
       - mthreads.com/vgpu
+  nvidia:
+    gpuCorePolicy: default
   ascend:
     enabled: false
     image: ""
@@ -148,10 +214,14 @@ devices:
     nodeSelector:
       ascend: "on"
     tolerations: []
-    resources:
+    customresources:
       - huawei.com/Ascend910A
       - huawei.com/Ascend910A-memory
+      - huawei.com/Ascend910B2
+      - huawei.com/Ascend910B2-memory
       - huawei.com/Ascend910B
       - huawei.com/Ascend910B-memory
+      - huawei.com/Ascend910B4
+      - huawei.com/Ascend910B4-memory
       - huawei.com/Ascend310P
       - huawei.com/Ascend310P-memory

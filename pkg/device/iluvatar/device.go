@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 
 	corev1 "k8s.io/api/core/v1"
@@ -50,7 +49,16 @@ var (
 	IluvatarResourceCores  string
 )
 
-func InitIluvatarDevice() *IluvatarDevices {
+type IluvatarConfig struct {
+	ResourceCountName  string `yaml:"resourceCountName"`
+	ResourceMemoryName string `yaml:"resourceMemoryName"`
+	ResourceCoreName   string `yaml:"resourceCoreName"`
+}
+
+func InitIluvatarDevice(config IluvatarConfig) *IluvatarDevices {
+	IluvatarResourceCount = config.ResourceCountName
+	IluvatarResourceMemory = config.ResourceMemoryName
+	IluvatarResourceCores = config.ResourceCoreName
 	util.InRequestDevices[IluvatarGPUDevice] = "hami.io/iluvatar-vgpu-devices-to-allocate"
 	util.SupportDevices[IluvatarGPUDevice] = "hami.io/iluvatar-vgpu-devices-allocated"
 	return &IluvatarDevices{}
@@ -76,14 +84,14 @@ func (dev *IluvatarDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod
 	return ok, nil
 }
 
-func (dev *IluvatarDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, error) {
-	nodedevices := []*api.DeviceInfo{}
+func (dev *IluvatarDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
+	nodedevices := []*util.DeviceInfo{}
 	i := 0
 	cards, _ := n.Status.Capacity.Name(corev1.ResourceName(IluvatarResourceCores), resource.DecimalSI).AsInt64()
 	memoryTotal, _ := n.Status.Capacity.Name(corev1.ResourceName(IluvatarResourceMemory), resource.DecimalSI).AsInt64()
 	for int64(i)*100 < cards {
-		nodedevices = append(nodedevices, &api.DeviceInfo{
-			Index:   i,
+		nodedevices = append(nodedevices, &util.DeviceInfo{
+			Index:   uint(i),
 			ID:      n.Name + "-iluvatar-" + fmt.Sprint(i),
 			Count:   100,
 			Devmem:  int32(memoryTotal * 256 * 100 / cards),
@@ -171,7 +179,7 @@ func (dev *IluvatarDevices) CheckHealth(devType string, n *corev1.Node) (bool, b
 }
 
 func (dev *IluvatarDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
-	klog.Info("Counting iluvatar devices")
+	klog.Info("Start to count iluvatar devices for container ", ctr.Name)
 	iluvatarResourceCount := corev1.ResourceName(IluvatarResourceCount)
 	iluvatarResourceMem := corev1.ResourceName(IluvatarResourceMemory)
 	iluvatarResourceCores := corev1.ResourceName(IluvatarResourceCores)
@@ -222,10 +230,25 @@ func (dev *IluvatarDevices) GenerateResourceRequests(ctr *corev1.Container) util
 	return util.ContainerDeviceRequest{}
 }
 
-func (dev *IluvatarDevices) CustomFilterRule(allocated *util.PodDevices, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
+func (dev *IluvatarDevices) CustomFilterRule(allocated *util.PodDevices, request util.ContainerDeviceRequest, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
 	return true
 }
 
 func (dev *IluvatarDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, policy string) float32 {
 	return 0
+}
+
+func (dev *IluvatarDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+	n.Used++
+	n.Usedcores += ctr.Usedcores
+	n.Usedmem += ctr.Usedmem
+	return nil
+}
+
+func (dev *IluvatarDevices) GetResourceNames() util.ResoureNames {
+	return util.ResoureNames{
+		ResourceCountName:  IluvatarResourceCount,
+		ResourceMemoryName: IluvatarResourceMemory,
+		ResourceCoreName:   IluvatarResourceCores,
+	}
 }

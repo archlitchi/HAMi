@@ -17,7 +17,6 @@ limitations under the License.
 package util
 
 import (
-	spec "github.com/NVIDIA/k8s-device-plugin/api/config/v1"
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -33,10 +32,6 @@ const (
 	DeviceBindFailed     = "failed"
 	DeviceBindSuccess    = "success"
 
-	//Set default mem to 5000m
-	//DefaultMem   = 5000
-	//DefaultCores = 0.
-
 	DeviceLimit = 100
 	//TimeLayout = "ANSIC"
 	//DefaultTimeout = time.Second * 60.
@@ -47,54 +42,17 @@ const (
 
 	// NodeNameEnvName define env var name for use get node name.
 	NodeNameEnvName = "NODE_NAME"
+	TaskPriority    = "CUDA_TASK_PRIORITY"
+	CoreLimitSwitch = "GPU_CORE_UTILIZATION_POLICY"
 )
-
-type FilterDevice struct {
-	// UUID is the device ID.
-	UUID []string `json:"uuid"`
-	// Index is the device index.
-	Index []uint `json:"index"`
-}
-
-type DevicePluginConfigs struct {
-	Nodeconfig []struct {
-		Name                string        `json:"name"`
-		Devicememoryscaling float64       `json:"devicememoryscaling"`
-		Devicecorescaling   float64       `json:"devicecorescaling"`
-		Devicesplitcount    uint          `json:"devicesplitcount"`
-		Migstrategy         string        `json:"migstrategy"`
-		FilterDevice        *FilterDevice `json:"filterdevices"`
-	} `json:"nodeconfig"`
-}
-
-type DeviceConfig struct {
-	*spec.Config
-
-	ResourceName *string
-	DebugMode    *bool
-}
 
 var (
 	DebugMode bool
 
-	DeviceSplitCount    *uint
-	DeviceMemoryScaling *float64
-	DeviceCoresScaling  *float64
-	NodeName            string
-	RuntimeSocketFlag   string
-	DisableCoreLimit    *bool
-
-	// DevicePluginFilterDevice need device-plugin filter this device, don't register this device.
-	DevicePluginFilterDevice *FilterDevice
+	NodeName          string
+	RuntimeSocketFlag string
 )
 
-//	type ContainerDevices struct {
-//	   Devices []string `json:"devices,omitempty"`
-//	}
-//
-//	type PodDevices struct {
-//	   Containers []ContainerDevices `json:"containers,omitempty"`
-//	}
 type ContainerDevice struct {
 	// TODO current Idx cannot use, because EncodeContainerDevices method not encode this filed.
 	Idx       int
@@ -102,6 +60,12 @@ type ContainerDevice struct {
 	Type      string
 	Usedmem   int32
 	Usedcores int32
+}
+
+type ResoureNames struct {
+	ResourceCountName  string
+	ResourceMemoryName string
+	ResourceCoreName   string
 }
 
 type ContainerDeviceRequest struct {
@@ -117,34 +81,64 @@ type ContainerDeviceRequests map[string]ContainerDeviceRequest
 
 // type ContainerAllDevices map[string]ContainerDevices.
 type PodSingleDevice []ContainerDevices
-
 type PodDeviceRequests []ContainerDeviceRequests
 type PodDevices map[string]PodSingleDevice
 
+type MigTemplate struct {
+	Name   string `yaml:"name"`
+	Memory int32  `yaml:"memory"`
+	Count  int32  `yaml:"count"`
+}
+
+type MigTemplateUsage struct {
+	Name   string `json:"name,omitempty"`
+	Memory int32  `json:"memory,omitempty"`
+	InUse  bool   `json:"inuse,omitempty"`
+}
+
+type Geometry []MigTemplate
+
+type MIGS []MigTemplateUsage
+
+type MigInUse struct {
+	Index     int32
+	UsageList MIGS
+}
+
+type AllowedMigGeometries struct {
+	Models     []string   `yaml:"models"`
+	Geometries []Geometry `yaml:"allowedGeometries"`
+}
+
 type DeviceUsage struct {
-	ID        string
-	Index     uint
-	Used      int32
-	Count     int32
-	Usedmem   int32
-	Totalmem  int32
-	Totalcore int32
-	Usedcores int32
-	Numa      int
-	Type      string
-	Health    bool
+	ID          string
+	Index       uint
+	Used        int32
+	Count       int32
+	Usedmem     int32
+	Totalmem    int32
+	Totalcore   int32
+	Usedcores   int32
+	Mode        string
+	MigTemplate []Geometry
+	MigUsage    MigInUse
+	Numa        int
+	Type        string
+	Health      bool
 }
 
 type DeviceInfo struct {
-	ID           string
-	Index        uint
-	Count        int32
-	Devmem       int32
-	Devcore      int32
-	Type         string
-	Numa         int
-	Health       bool
-	DeviceVendor string
+	ID           string     `json:"id,omitempty"`
+	Index        uint       `json:"index,omitempty"`
+	Count        int32      `json:"count,omitempty"`
+	Devmem       int32      `json:"devmem,omitempty"`
+	Devcore      int32      `json:"devcore,omitempty"`
+	Type         string     `json:"type,omitempty"`
+	Numa         int        `json:"numa,omitempty"`
+	Mode         string     `json:"mode,omitempty"`
+	MIGTemplate  []Geometry `json:"migtemplate,omitempty"`
+	Health       bool       `json:"health,omitempty"`
+	DeviceVendor string     `json:"devicevendor,omitempty"`
 }
 
 type NodeInfo struct {

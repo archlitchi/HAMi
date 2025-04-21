@@ -24,7 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,9 +38,9 @@ const (
 	MthreadsGPUDevice       = "Mthreads"
 	MthreadsGPUCommonWord   = "Mthreads"
 	MthreadsDeviceSelection = "mthreads.com/gpu-index"
-	// IluvatarUseUUID is user can use specify Iluvatar device for set Iluvatar UUID.
+	// MthreadsUseUUID is user can use specify Mthreads device for set Mthreads UUID.
 	MthreadsUseUUID = "mthreads.ai/use-gpuuuid"
-	// IluvatarNoUseUUID is user can not use specify Iluvatar device for set Iluvatar UUID.
+	// MthreadsNoUseUUID is user can not use specify Mthreads device for set Mthreads UUID.
 	MthreadsNoUseUUID        = "mthreads.ai/nouse-gpuuuid"
 	MthreadsAssignedGPUIndex = "mthreads.com/gpu-index"
 	MthreadsAssignedNode     = "mthreads.com/predicate-node"
@@ -57,7 +56,16 @@ var (
 	legalMemoryslices      = []int64{2, 4, 8, 16, 32, 64, 96}
 )
 
-func InitMthreadsDevice() *MthreadsDevices {
+type MthreadsConfig struct {
+	ResourceCountName  string `yaml:"resourceCountName"`
+	ResourceMemoryName string `yaml:"resourceMemoryName"`
+	ResourceCoreName   string `yaml:"resourceCoreName"`
+}
+
+func InitMthreadsDevice(config MthreadsConfig) *MthreadsDevices {
+	MthreadsResourceCount = config.ResourceCountName
+	MthreadsResourceCores = config.ResourceCoreName
+	MthreadsResourceMemory = config.ResourceMemoryName
 	util.InRequestDevices[MthreadsGPUDevice] = "hami.io/mthreads-vgpu-devices-to-allocate"
 	util.SupportDevices[MthreadsGPUDevice] = "hami.io/mthreads-vgpu-devices-allocated"
 	return &MthreadsDevices{}
@@ -103,14 +111,14 @@ func (dev *MthreadsDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod
 	return ok, nil
 }
 
-func (dev *MthreadsDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, error) {
-	nodedevices := []*api.DeviceInfo{}
+func (dev *MthreadsDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
+	nodedevices := []*util.DeviceInfo{}
 	i := 0
 	cores, _ := n.Status.Capacity.Name(corev1.ResourceName(MthreadsResourceCores), resource.DecimalSI).AsInt64()
 	memoryTotal, _ := n.Status.Capacity.Name(corev1.ResourceName(MthreadsResourceMemory), resource.DecimalSI).AsInt64()
 	for int64(i)*coresPerMthreadsGPU < cores {
-		nodedevices = append(nodedevices, &api.DeviceInfo{
-			Index:   i,
+		nodedevices = append(nodedevices, &util.DeviceInfo{
+			Index:   uint(i),
 			ID:      n.Name + "-mthreads-" + fmt.Sprint(i),
 			Count:   100,
 			Devmem:  int32(memoryTotal * 512 * coresPerMthreadsGPU / cores),
@@ -170,7 +178,7 @@ func (dev *MthreadsDevices) CheckType(annos map[string]string, d util.DeviceUsag
 func (dev *MthreadsDevices) CheckUUID(annos map[string]string, d util.DeviceUsage) bool {
 	userUUID, ok := annos[MthreadsUseUUID]
 	if ok {
-		klog.V(5).Infof("check uuid for Iluvatar user uuid [%s], device id is %s", userUUID, d.ID)
+		klog.V(5).Infof("check uuid for Mthreads user uuid [%s], device id is %s", userUUID, d.ID)
 		// use , symbol to connect multiple uuid
 		userUUIDs := strings.Split(userUUID, ",")
 		for _, uuid := range userUUIDs {
@@ -201,7 +209,7 @@ func (dev *MthreadsDevices) CheckHealth(devType string, n *corev1.Node) (bool, b
 }
 
 func (dev *MthreadsDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
-	klog.Info("Counting mthreads devices")
+	klog.Info("Start to count mthreads devices for container ", ctr.Name)
 	mthreadsResourceCount := corev1.ResourceName(MthreadsResourceCount)
 	mthreadsResourceMem := corev1.ResourceName(MthreadsResourceMemory)
 	mthreadsResourceCores := corev1.ResourceName(MthreadsResourceCores)
@@ -211,7 +219,9 @@ func (dev *MthreadsDevices) GenerateResourceRequests(ctr *corev1.Container) util
 	}
 	if ok {
 		if n, ok := v.AsInt64(); ok {
-			klog.Info("Found iluvatar devices")
+			klog.InfoS("Detected mthreads device request",
+				"container", ctr.Name,
+				"deviceCount", n)
 			memnum := 0
 			mem, ok := ctr.Resources.Limits[mthreadsResourceMem]
 			if !ok {
@@ -221,6 +231,10 @@ func (dev *MthreadsDevices) GenerateResourceRequests(ctr *corev1.Container) util
 				memnums, ok := mem.AsInt64()
 				if ok {
 					memnum = int(memnums) * 512
+					klog.InfoS("Memory allocation calculated",
+						"container", ctr.Name,
+						"requestedMem", memnums,
+						"allocatedMem", memnum)
 				}
 			}
 			corenum := int32(0)
@@ -252,7 +266,7 @@ func (dev *MthreadsDevices) GenerateResourceRequests(ctr *corev1.Container) util
 	return util.ContainerDeviceRequest{}
 }
 
-func (dev *MthreadsDevices) CustomFilterRule(allocated *util.PodDevices, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
+func (dev *MthreadsDevices) CustomFilterRule(allocated *util.PodDevices, request util.ContainerDeviceRequest, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
 	for _, ctrs := range (*allocated)[device.Type] {
 		for _, ctrdev := range ctrs {
 			if strings.Compare(ctrdev.UUID, device.ID) != 0 {
@@ -266,4 +280,19 @@ func (dev *MthreadsDevices) CustomFilterRule(allocated *util.PodDevices, toAlloc
 
 func (dev *MthreadsDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, policy string) float32 {
 	return 0
+}
+
+func (dev *MthreadsDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+	n.Used++
+	n.Usedcores += ctr.Usedcores
+	n.Usedmem += ctr.Usedmem
+	return nil
+}
+
+func (dev *MthreadsDevices) GetResourceNames() util.ResoureNames {
+	return util.ResoureNames{
+		ResourceCountName:  MthreadsResourceCount,
+		ResourceMemoryName: MthreadsResourceMemory,
+		ResourceCoreName:   MthreadsResourceCores,
+	}
 }

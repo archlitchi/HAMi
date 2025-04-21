@@ -17,12 +17,10 @@ limitations under the License.
 package metax
 
 import (
-	"flag"
 	"fmt"
 	"strconv"
 	"strings"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 
 	corev1 "k8s.io/api/core/v1"
@@ -44,7 +42,8 @@ var (
 	MetaxResourceCount string
 )
 
-func InitMetaxDevice() *MetaxDevices {
+func InitMetaxDevice(config MetaxConfig) *MetaxDevices {
+	MetaxResourceCount = config.ResourceCountName
 	util.InRequestDevices[MetaxGPUDevice] = "hami.io/metax-gpu-devices-to-allocate"
 	util.SupportDevices[MetaxGPUDevice] = "hami.io/metax-gpu-devices-allocated"
 	return &MetaxDevices{}
@@ -54,22 +53,18 @@ func (dev *MetaxDevices) CommonWord() string {
 	return MetaxGPUCommonWord
 }
 
-func ParseConfig(fs *flag.FlagSet) {
-	fs.StringVar(&MetaxResourceCount, "metax-name", "metax-tech.com/gpu", "metax resource count")
-}
-
 func (dev *MetaxDevices) MutateAdmission(ctr *corev1.Container, p *corev1.Pod) (bool, error) {
 	_, ok := ctr.Resources.Limits[corev1.ResourceName(MetaxResourceCount)]
 	return ok, nil
 }
 
-func (dev *MetaxDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, error) {
-	nodedevices := []*api.DeviceInfo{}
+func (dev *MetaxDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
+	nodedevices := []*util.DeviceInfo{}
 	i := 0
 	count, _ := n.Status.Capacity.Name(corev1.ResourceName(MetaxResourceCount), resource.DecimalSI).AsInt64()
 	for int64(i) < count {
-		nodedevices = append(nodedevices, &api.DeviceInfo{
-			Index:   i,
+		nodedevices = append(nodedevices, &util.DeviceInfo{
+			Index:   uint(i),
 			ID:      n.Name + "-metax-" + fmt.Sprint(i),
 			Count:   1,
 			Devmem:  65536,
@@ -115,7 +110,7 @@ func (dev *MetaxDevices) CheckHealth(devType string, n *corev1.Node) (bool, bool
 }
 
 func (dev *MetaxDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
-	klog.Info("Counting metax devices")
+	klog.Info("Start to count metax devices for container ", ctr.Name)
 	metaxResourceCount := corev1.ResourceName(MetaxResourceCount)
 	v, ok := ctr.Resources.Limits[metaxResourceCount]
 	if !ok {
@@ -136,7 +131,7 @@ func (dev *MetaxDevices) GenerateResourceRequests(ctr *corev1.Container) util.Co
 	return util.ContainerDeviceRequest{}
 }
 
-func (dev *MetaxDevices) CustomFilterRule(allocated *util.PodDevices, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
+func (dev *MetaxDevices) CustomFilterRule(allocated *util.PodDevices, request util.ContainerDeviceRequest, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
 	for _, ctrs := range (*allocated)[device.Type] {
 		for _, ctrdev := range ctrs {
 			if strings.Compare(ctrdev.UUID, device.ID) != 0 {
@@ -183,4 +178,19 @@ func (dev *MetaxDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleD
 		}
 	}
 	return res
+}
+
+func (dev *MetaxDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+	n.Used++
+	n.Usedcores += ctr.Usedcores
+	n.Usedmem += ctr.Usedmem
+	return nil
+}
+
+func (dev *MetaxDevices) GetResourceNames() util.ResoureNames {
+	return util.ResoureNames{
+		ResourceCountName:  MetaxResourceCount,
+		ResourceMemoryName: "",
+		ResourceCoreName:   "",
+	}
 }

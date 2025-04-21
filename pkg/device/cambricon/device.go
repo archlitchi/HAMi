@@ -25,7 +25,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Project-HAMi/HAMi/pkg/api"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 	"github.com/Project-HAMi/HAMi/pkg/util/client"
 
@@ -60,6 +59,12 @@ var (
 	MLUResourceCores  string
 )
 
+type CambriconConfig struct {
+	ResourceCountName  string `yaml:"resourceCountName"`
+	ResourceMemoryName string `yaml:"resourceMemoryName"`
+	ResourceCoreName   string `yaml:"resourceCoreName"`
+}
+
 type CambriconDevices struct {
 }
 
@@ -69,7 +74,10 @@ func ParseConfig(fs *flag.FlagSet) {
 	fs.StringVar(&MLUResourceCores, "cambricon-mlu-cores", "cambricon.com/mlu.smlu.vcore", "cambricon mlu core resource")
 }
 
-func InitMLUDevice() *CambriconDevices {
+func InitMLUDevice(config CambriconConfig) *CambriconDevices {
+	MLUResourceCount = config.ResourceCountName
+	MLUResourceMemory = config.ResourceMemoryName
+	MLUResourceCores = config.ResourceCoreName
 	util.InRequestDevices[CambriconMLUDevice] = "hami.io/cambricon-mlu-devices-to-allocate"
 	util.SupportDevices[CambriconMLUDevice] = "hami.io/cambricon-mlu-devices-allocated"
 	return &CambriconDevices{}
@@ -86,7 +94,7 @@ func (dev *CambriconDevices) setNodeLock(node *corev1.Node) error {
 	}
 
 	patchedAnnotation, err := json.Marshal(
-		map[string]interface{}{
+		map[string]any{
 			"metadata": map[string]map[string]string{"annotations": {
 				DsmluLockTime: time.Now().Format(time.RFC3339),
 			}}})
@@ -98,7 +106,7 @@ func (dev *CambriconDevices) setNodeLock(node *corev1.Node) error {
 	_, err = client.GetClient().CoreV1().Nodes().Patch(ctx, node.Name, types.StrategicMergePatchType, patchedAnnotation, metav1.PatchOptions{})
 	for i := 0; i < retry && err != nil; i++ {
 		klog.ErrorS(err, "Failed to patch node annotation", "node", node.Name, "retry", i)
-		time.Sleep(time.Duration(rand.Intn(i)) * 10 * time.Millisecond)
+		time.Sleep(time.Duration(rand.Intn(i+1)) * 10 * time.Millisecond)
 		_, err = client.GetClient().CoreV1().Nodes().Patch(ctx, node.Name, types.StrategicMergePatchType, patchedAnnotation, metav1.PatchOptions{})
 	}
 	if err != nil {
@@ -147,22 +155,18 @@ func (dev *CambriconDevices) ReleaseNodeLock(n *corev1.Node, p *corev1.Pod) erro
 		return nil
 	}
 
-	patchData := []byte(`[
-				{
-					"op": "remove",
-					"path": "/metadata/annotations/cambricon.com~1dsmlu.lock"
-				}
-			]`)
-
-	_, err := client.GetClient().CoreV1().Nodes().Patch(context.TODO(), n.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+	newNode := n.DeepCopy()
+	delete(newNode.ObjectMeta.Annotations, DsmluLockTime)
+	_, err := client.GetClient().CoreV1().Nodes().Update(context.Background(), newNode, metav1.UpdateOptions{})
 	for i := 0; i < retry && err != nil; i++ {
 		klog.ErrorS(err, "Failed to patch node annotation", "node", n.Name, "retry", i)
-		time.Sleep(time.Duration(rand.Intn(i)) * 10 * time.Millisecond)
-		_, err = client.GetClient().CoreV1().Nodes().Patch(context.TODO(), n.Name, types.JSONPatchType, patchData, metav1.PatchOptions{})
+		time.Sleep(time.Duration(rand.Intn(i+1)) * 10 * time.Millisecond)
+		_, err = client.GetClient().CoreV1().Nodes().Update(context.Background(), newNode, metav1.UpdateOptions{})
 	}
 	if err != nil {
 		return fmt.Errorf("releaseNodeLock exceeds retry count %d", retry)
 	}
+	delete(n.ObjectMeta.Annotations, DsmluLockTime)
 	klog.InfoS("Node lock released", "node", n.Name)
 	return nil
 }
@@ -175,14 +179,14 @@ func (dev *CambriconDevices) CheckHealth(devType string, n *corev1.Node) (bool, 
 	return true, true
 }
 
-func (dev *CambriconDevices) GetNodeDevices(n corev1.Node) ([]*api.DeviceInfo, error) {
-	nodedevices := []*api.DeviceInfo{}
+func (dev *CambriconDevices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
+	nodedevices := []*util.DeviceInfo{}
 	i := 0
 	cards, _ := n.Status.Capacity.Name(corev1.ResourceName(MLUResourceCores), resource.DecimalSI).AsInt64()
 	memoryTotal, _ := n.Status.Capacity.Name(corev1.ResourceName(MLUResourceMemory), resource.DecimalSI).AsInt64()
 	for int64(i)*100 < cards {
-		nodedevices = append(nodedevices, &api.DeviceInfo{
-			Index:   i,
+		nodedevices = append(nodedevices, &util.DeviceInfo{
+			Index:   uint(i),
 			ID:      n.Name + "-cambricon-mlu-" + fmt.Sprint(i),
 			Count:   100,
 			Devmem:  int32(memoryTotal * 256 * 100 / cards),
@@ -242,7 +246,7 @@ func (dev *CambriconDevices) CheckUUID(annos map[string]string, d util.DeviceUsa
 }
 
 func (dev *CambriconDevices) GenerateResourceRequests(ctr *corev1.Container) util.ContainerDeviceRequest {
-	klog.Info("Counting mlu devices")
+	klog.Info("Start to count mlu devices for container ", ctr.Name)
 	mluResourceCount := corev1.ResourceName(MLUResourceCount)
 	mluResourceMem := corev1.ResourceName(MLUResourceMemory)
 	mluResourceCores := corev1.ResourceName(MLUResourceCores)
@@ -305,14 +309,35 @@ func (dev *CambriconDevices) PatchAnnotations(annoinput *map[string]string, pd u
 	if ok {
 		(*annoinput)[DsmluResourceAssigned] = "false"
 		(*annoinput)[DsmluProfile] = fmt.Sprintf("%d_%d_%d", devlist[0][0].Idx, devlist[0][0].Usedcores, devlist[0][0].Usedmem/256)
+		deviceStr := util.EncodePodSingleDevice(devlist)
+		(*annoinput)[util.InRequestDevices[CambriconMLUDevice]] = deviceStr
+		(*annoinput)[util.SupportDevices[CambriconMLUDevice]] = deviceStr
+		klog.V(5).Infof("pod add notation key [%s], values is [%s]", util.InRequestDevices[CambriconMLUDevice], deviceStr)
+		klog.V(5).Infof("pod add notation key [%s], values is [%s]", util.SupportDevices[CambriconMLUDevice], deviceStr)
+		return *annoinput
 	}
 	return *annoinput
 }
 
-func (dev *CambriconDevices) CustomFilterRule(allocated *util.PodDevices, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
+func (dev *CambriconDevices) CustomFilterRule(allocated *util.PodDevices, request util.ContainerDeviceRequest, toAllocate util.ContainerDevices, device *util.DeviceUsage) bool {
 	return true
 }
 
 func (dev *CambriconDevices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice, policy string) float32 {
 	return 0
+}
+
+func (dev *CambriconDevices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+	n.Used++
+	n.Usedcores += ctr.Usedcores
+	n.Usedmem += ctr.Usedmem
+	return nil
+}
+
+func (dev *CambriconDevices) GetResourceNames() util.ResoureNames {
+	return util.ResoureNames{
+		ResourceCountName:  MLUResourceCount,
+		ResourceMemoryName: MLUResourceMemory,
+		ResourceCoreName:   MLUResourceCores,
+	}
 }
