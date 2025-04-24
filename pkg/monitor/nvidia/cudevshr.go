@@ -17,7 +17,6 @@ limitations under the License.
 package nvidia
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -28,13 +27,15 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Project-HAMi/HAMi/pkg/device/nvidia"
 	v0 "github.com/Project-HAMi/HAMi/pkg/monitor/nvidia/v0"
 	v1 "github.com/Project-HAMi/HAMi/pkg/monitor/nvidia/v1"
 	"github.com/Project-HAMi/HAMi/pkg/util"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
+	listerscorev1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
 )
@@ -79,12 +80,14 @@ type ContainerUsage struct {
 
 type ContainerLister struct {
 	containerPath string
+	PodLister     listerscorev1.PodLister
 	containers    map[string]*ContainerUsage
 	mutex         sync.Mutex
 	clientset     *kubernetes.Clientset
 }
 
 func NewContainerLister() (*ContainerLister, error) {
+	util.SupportDevices[nvidia.NvidiaGPUDevice] = "hami.io/vgpu-devices-allocated"
 	hookPath, ok := os.LookupEnv("HOOK_PATH")
 	if !ok {
 		return nil, fmt.Errorf("HOOK_PATH not set")
@@ -123,15 +126,15 @@ func (l *ContainerLister) Clientset() *kubernetes.Clientset {
 }
 
 func (l *ContainerLister) Update() error {
+	klog.Infoln("into Updating......")
 	nodename := os.Getenv(util.NodeNameEnvName)
 	if nodename == "" {
 		return fmt.Errorf("env %s not set", util.NodeNameEnvName)
 	}
-	pods, err := l.clientset.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodename),
-	})
+	pods, err := l.PodLister.List(labels.SelectorFromSet(labels.Set{util.AssignedNodeAnnotations: nodename}))
 	if err != nil {
-		return err
+		klog.Errorf("Failed to list pods for node %s: %v", nodename, err)
+		return fmt.Errorf("failed to list pods: %w", err)
 	}
 
 	l.mutex.Lock()
@@ -145,7 +148,8 @@ func (l *ContainerLister) Update() error {
 			continue
 		}
 		dirName := filepath.Join(l.containerPath, entry.Name())
-		if !isValidPod(entry.Name(), pods) {
+		pod := isValidPod(entry.Name(), pods)
+		if pod == nil {
 			dirInfo, err := os.Stat(dirName)
 			if err == nil && dirInfo.ModTime().Add(time.Second*300).After(time.Now()) {
 				continue
@@ -158,7 +162,27 @@ func (l *ContainerLister) Update() error {
 			_ = os.RemoveAll(dirName)
 			continue
 		}
-		if _, ok := l.containers[entry.Name()]; ok {
+		if data, ok := l.containers[entry.Name()]; ok {
+			if data != nil && data.Info.DeviceMemoryLimit(0) != 0 {
+				podDev, _ := util.DecodePodDevices(util.SupportDevices, pod.Annotations)
+				for ctr, val := range podDev[nvidia.NvidiaGPUDevice] {
+					if pod.Spec.Containers[ctr].Name != data.ContainerName {
+						continue
+					}
+					klog.Infoln("found container name=", pod.Spec.Containers[ctr].Name)
+					devicemap := map[string]uint64{}
+					num := data.Info.DeviceNum()
+					for i := 0; i < num; i++ {
+						devicemap[data.Info.DeviceUUID(i)[:40]] = data.Info.DeviceMemoryLimit(i)
+					}
+					for _, ctrdevs := range val {
+						if devicemap[ctrdevs.UUID] != uint64(ctrdevs.Usedmem)*1024*1024 {
+							klog.Infoln("setting ctrdevices from", devicemap[ctrdevs.UUID], "to", ctrdevs.Usedmem*1024*1024)
+							data.Info.SetDeviceMemoryLimit(uint64(ctrdevs.Usedmem) * 1024 * 1024)
+						}
+					}
+				}
+			}
 			continue
 		}
 		usage, err := loadCache(dirName)
@@ -243,11 +267,11 @@ func loadCache(fpath string) (*ContainerUsage, error) {
 	return usage, nil
 }
 
-func isValidPod(name string, pods *corev1.PodList) bool {
-	for _, val := range pods.Items {
+func isValidPod(name string, pods []*corev1.Pod) *corev1.Pod {
+	for _, val := range pods {
 		if strings.Contains(name, string(val.UID)) {
-			return true
+			return val
 		}
 	}
-	return false
+	return nil
 }

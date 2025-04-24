@@ -132,6 +132,7 @@ func (s *Scheduler) fitInCertainDevice(node *NodeUsage, request util.ContainerDe
 			continue
 		}
 		if !s.FitQuota(pod.Namespace, int64(memreq), int64(k.Coresreq), k.Type) {
+			klog.V(5).InfoS("quota not fitted for this ns", "namespace", pod.Namespace, "memreq", memreq, "corereq", k.Coresreq, "type", k.Type)
 			continue
 		}
 		if k.Nums > 0 {

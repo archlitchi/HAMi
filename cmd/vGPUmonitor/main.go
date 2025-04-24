@@ -120,12 +120,6 @@ func initMetrics(ctx context.Context, containerLister *nvidia.ContainerLister) e
 	NewClusterManager("vGPU", reg, containerLister)
 	//NewClusterManager("ca", reg)
 
-	// Uncomment to add the standard process and Go metrics to the custom registry.
-	//reg.MustRegister(
-	//	prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-	//	prometheus.NewGoCollector(),
-	//)
-
 	http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	server := &http.Server{Addr: ":9394", Handler: nil}
 

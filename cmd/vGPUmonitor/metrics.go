@@ -29,7 +29,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
-	listerscorev1 "k8s.io/client-go/listers/core/v1"
 	"k8s.io/klog/v2"
 )
 
@@ -47,27 +46,7 @@ import (
 type ClusterManager struct {
 	Zone string
 	// Contains many more fields not listed in this example.
-	PodLister       listerscorev1.PodLister
 	containerLister *nvidia.ContainerLister
-}
-
-// ReallyExpensiveAssessmentOfTheSystemState is a mock for the data gathering a
-// real cluster manager would have to do. Since it may actually be really
-// expensive, it must only be called once per collection. This implementation,
-// obviously, only returns some made-up data.
-func (c *ClusterManager) ReallyExpensiveAssessmentOfTheSystemState() (
-	oomCountByHost map[string]int, ramUsageByHost map[string]float64,
-) {
-	// Just example fake data.
-	oomCountByHost = map[string]int{
-		"foo.example.org": 42,
-		"bar.example.org": 2001,
-	}
-	ramUsageByHost = map[string]float64{
-		"foo.example.org": 6.023e23,
-		"bar.example.org": 3.14,
-	}
-	return
 }
 
 // ClusterManagerCollector implements the Collector interface.
@@ -293,7 +272,7 @@ func (cc ClusterManagerCollector) collectPodAndContainerInfo(ch chan<- prometheu
 		return fmt.Errorf("node name environment variable %s is not set", util.NodeNameEnvName)
 	}
 
-	pods, err := cc.ClusterManager.PodLister.List(labels.SelectorFromSet(labels.Set{util.AssignedNodeAnnotations: nodeName}))
+	pods, err := cc.ClusterManager.containerLister.PodLister.List(labels.SelectorFromSet(labels.Set{util.AssignedNodeAnnotations: nodeName}))
 	if err != nil {
 		klog.Errorf("Failed to list pods for node %s: %v", nodeName, err)
 		return fmt.Errorf("failed to list pods: %w", err)
@@ -431,7 +410,7 @@ func NewClusterManager(zone string, reg prometheus.Registerer, containerLister *
 	}
 
 	informerFactory := informers.NewSharedInformerFactoryWithOptions(containerLister.Clientset(), time.Hour*1)
-	c.PodLister = informerFactory.Core().V1().Pods().Lister()
+	c.containerLister.PodLister = informerFactory.Core().V1().Pods().Lister()
 	stopCh := make(chan struct{})
 	informerFactory.Start(stopCh)
 
