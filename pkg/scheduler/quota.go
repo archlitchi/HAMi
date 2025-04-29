@@ -54,11 +54,13 @@ func (q *quotaManager) FitQuota(ns string, memreq int64, coresreq int64, deviceN
 	resourceNames := devs.GetResourceNames()
 	memResourceName := resourceNames.ResourceMemoryName
 	coreResourceName := resourceNames.ResourceCoreName
-	klog.InfoS("resourceMem quota judging", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
 	_, ok = (*dq)[memResourceName]
-	if ok && (*dq)[memResourceName].Limit != 0 && (*dq)[memResourceName].Used+memreq > (*dq)[memResourceName].Limit {
-		klog.InfoS("resourceMem quota not fitted", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
-		return false
+	if ok {
+		klog.InfoS("resourceMem quota judging", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
+		if (*dq)[memResourceName].Limit != 0 && (*dq)[memResourceName].Used+memreq > (*dq)[memResourceName].Limit {
+			klog.InfoS("resourceMem quota not fitted", "limit", (*dq)[memResourceName].Limit, "used", (*dq)[memResourceName].Used, "alloc", memreq)
+			return false
+		}
 	}
 	_, ok = (*dq)[coreResourceName]
 	if ok && (*dq)[coreResourceName].Limit != 0 && (*dq)[coreResourceName].Used+coresreq > (*dq)[coreResourceName].Limit {
@@ -163,6 +165,9 @@ func (q *quotaManager) addQuota(quota *corev1.ResourceQuota) {
 	for idx, val := range quota.Spec.Hard {
 		value, ok := val.AsInt64()
 		if ok {
+			if len(idx.String()) <= len("request.") {
+				continue
+			}
 			dn := idx.String()[len("requests."):]
 			if !IsManagedQuota(dn) {
 				continue
@@ -195,6 +200,9 @@ func (q *quotaManager) delQuota(quota *corev1.ResourceQuota) {
 	for idx, val := range quota.Spec.Hard {
 		value, ok := val.AsInt64()
 		if ok {
+			if len(idx.String()) <= len("request.") {
+				continue
+			}
 			dn := idx.String()[len("requests."):]
 			if !IsManagedQuota(dn) {
 				continue
