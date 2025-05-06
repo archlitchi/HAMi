@@ -217,7 +217,8 @@ func TestSpec_DeviceMemoryTotal(t *testing.T) {
 		{
 			name: "device memory total for index 1",
 			spec: &Spec{sr: &sharedRegionT{
-				num: 2,
+				num:     2,
+				procnum: 2,
 				procs: [1024]shrregProcSlotT{
 					{used: [16]deviceMemory{{total: 100}, {total: 200}}},
 					{used: [16]deviceMemory{{total: 300}, {total: 400}}},
@@ -229,7 +230,8 @@ func TestSpec_DeviceMemoryTotal(t *testing.T) {
 		{
 			name: "device memory total for index 0",
 			spec: &Spec{sr: &sharedRegionT{
-				num: 2,
+				num:     2,
+				procnum: 2,
 				procs: [1024]shrregProcSlotT{
 					{used: [16]deviceMemory{{total: 100}, {total: 200}}},
 					{used: [16]deviceMemory{{total: 300}, {total: 400}}},
@@ -255,7 +257,8 @@ func TestSpec_DeviceSmUtil(t *testing.T) {
 		{
 			name: "device sm util for index 1",
 			spec: &Spec{sr: &sharedRegionT{
-				num: 2,
+				num:     2,
+				procnum: 2,
 				procs: [1024]shrregProcSlotT{
 					{deviceUtil: [16]deviceUtilization{{smUtil: 100}, {smUtil: 200}}},
 					{deviceUtil: [16]deviceUtilization{{smUtil: 300}, {smUtil: 400}}},
@@ -267,7 +270,8 @@ func TestSpec_DeviceSmUtil(t *testing.T) {
 		{
 			name: "device sm util for index 0",
 			spec: &Spec{sr: &sharedRegionT{
-				num: 2,
+				num:     2,
+				procnum: 2,
 				procs: [1024]shrregProcSlotT{
 					{deviceUtil: [16]deviceUtilization{{smUtil: 100}, {smUtil: 200}}},
 					{deviceUtil: [16]deviceUtilization{{smUtil: 300}, {smUtil: 400}}},

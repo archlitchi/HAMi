@@ -125,7 +125,7 @@ func (s Spec) DeviceMemoryTotal(idx int) uint64 {
 
 func (s Spec) DeviceSmUtil(idx int) uint64 {
 	v := uint64(0)
-	for idx, p := range s.sr.procs {
+	for _, p := range s.sr.procs {
 		if idx < int(s.sr.procnum) {
 			v += p.deviceUtil[idx].smUtil
 		}
