@@ -72,7 +72,7 @@ func NewScheduler() *Scheduler {
 	}
 	s.nodeManager = newNodeManager()
 	s.podManager = newPodManager()
-	s.quotaManager.init()
+	s.init()
 	klog.V(2).InfoS("Scheduler initialized successfully")
 	return s
 }
