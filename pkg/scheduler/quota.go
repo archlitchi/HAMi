@@ -165,7 +165,7 @@ func (q *quotaManager) addQuota(quota *corev1.ResourceQuota) {
 	for idx, val := range quota.Spec.Hard {
 		value, ok := val.AsInt64()
 		if ok {
-			if len(idx.String()) <= len("request.") {
+			if len(idx.String()) <= len("requests.") {
 				continue
 			}
 			dn := idx.String()[len("requests."):]
