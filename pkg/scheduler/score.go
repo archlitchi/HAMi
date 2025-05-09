@@ -305,7 +305,9 @@ func (s *Scheduler) calcScore(nodes *map[string]*NodeUsage, nums util.PodDeviceR
 				ctrfit = fit
 				if !fit {
 					klog.V(4).InfoS(nodeUnfitPod, "pod", klog.KObj(task), "node", nodeID, "reason", reason)
+					mutex.Lock()
 					failedNodes[nodeID] = nodeUnfitPod
+					mutex.Unlock()
 					break
 				}
 			}

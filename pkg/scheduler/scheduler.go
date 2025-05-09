@@ -96,7 +96,7 @@ func (s *Scheduler) onAddPod(obj any) {
 		return
 	}
 	if k8sutil.IsPodInTerminatedState(pod) {
-		s.delPod(pod)
+		s.onDelPod(pod)
 		return
 	}
 	podDev, _ := util.DecodePodDevices(util.SupportDevices, pod.Annotations)
@@ -111,6 +111,7 @@ func (s *Scheduler) onUpdatePod(_, newObj any) {
 
 func (s *Scheduler) onDelPod(obj any) {
 	pod, ok := obj.(*corev1.Pod)
+	klog.V(5).Infoln("onDelPod", pod.Name)
 	if !ok {
 		klog.Errorf("unknown add object type")
 		return
@@ -499,7 +500,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		}, nil
 	}
 	annos := args.Pod.Annotations
-	s.delPod(args.Pod)
+	s.onDelPod(args.Pod)
 	nodeUsage, failedNodes, err := s.getNodesUsage(args.NodeNames, args.Pod)
 	if err != nil {
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, "", err)
@@ -549,7 +550,7 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 	err = util.PatchPodAnnotations(args.Pod, annotations)
 	if err != nil {
 		s.recordScheduleFilterResultEvent(args.Pod, EventReasonFilteringFailed, "", err)
-		s.delPod(args.Pod)
+		s.onDelPod(args.Pod)
 		return nil, err
 	}
 	successMsg := genSuccessMsg(len(*args.NodeNames), m.NodeID, nodeScores.NodeList)
