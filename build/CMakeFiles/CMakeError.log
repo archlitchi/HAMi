@@ -1,0 +1,60 @@
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/local/corex/bin/clang++ 
+Build flags: 
+Id flags: 
+
+The output was:
+1
+/usr/bin/ld: cannot find -lstdc++
+clang-16: error: linker command failed with exit code 1 (use -v to see invocation)
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/gmake "cmTryCompileExec4004187581/fast"
+/usr/bin/gmake -f CMakeFiles/cmTryCompileExec4004187581.dir/build.make CMakeFiles/cmTryCompileExec4004187581.dir/build
+gmake[1]: Entering directory `/root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp'
+/usr/bin/cmake -E cmake_progress_report /root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec4004187581.dir/testCXXCompiler.cxx.o
+/usr/local/corex/bin/clang++     -o CMakeFiles/cmTryCompileExec4004187581.dir/testCXXCompiler.cxx.o -c /root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+Linking CXX executable cmTryCompileExec4004187581
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTryCompileExec4004187581.dir/link.txt --verbose=1
+/usr/local/corex/bin/clang++        CMakeFiles/cmTryCompileExec4004187581.dir/testCXXCompiler.cxx.o  -o cmTryCompileExec4004187581 -rdynamic 
+/usr/bin/ld: cannot find -lstdc++
+clang-16: error: linker command failed with exit code 1 (use -v to see invocation)
+gmake[1]: *** [cmTryCompileExec4004187581] Error 1
+gmake[1]: Leaving directory `/root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp'
+gmake: *** [cmTryCompileExec4004187581/fast] Error 2
+
+
+Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" failed.
+Compiler: /usr/local/corex/bin/clang++ 
+Build flags: 
+Id flags: 
+
+The output was:
+1
+/usr/bin/ld: cannot find -lstdc++
+clang-16: error: linker command failed with exit code 1 (use -v to see invocation)
+
+
+Determining if the CXX compiler works failed with the following output:
+Change Dir: /root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp
+
+Run Build Command:/usr/bin/gmake "cmTryCompileExec2246589520/fast"
+/usr/bin/gmake -f CMakeFiles/cmTryCompileExec2246589520.dir/build.make CMakeFiles/cmTryCompileExec2246589520.dir/build
+gmake[1]: Entering directory `/root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp'
+/usr/bin/cmake -E cmake_progress_report /root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp/CMakeFiles 1
+Building CXX object CMakeFiles/cmTryCompileExec2246589520.dir/testCXXCompiler.cxx.o
+/usr/local/corex/bin/clang++     -o CMakeFiles/cmTryCompileExec2246589520.dir/testCXXCompiler.cxx.o -c /root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp/testCXXCompiler.cxx
+Linking CXX executable cmTryCompileExec2246589520
+/usr/bin/cmake -E cmake_link_script CMakeFiles/cmTryCompileExec2246589520.dir/link.txt --verbose=1
+/usr/local/corex/bin/clang++        CMakeFiles/cmTryCompileExec2246589520.dir/testCXXCompiler.cxx.o  -o cmTryCompileExec2246589520 -rdynamic 
+/usr/bin/ld: cannot find -lstdc++
+clang-16: error: linker command failed with exit code 1 (use -v to see invocation)
+gmake[1]: *** [cmTryCompileExec2246589520] Error 1
+gmake[1]: Leaving directory `/root/k8s-vgpu-scheduler/HAMi/build/CMakeFiles/CMakeTmp'
+gmake: *** [cmTryCompileExec2246589520/fast] Error 2
+
+
