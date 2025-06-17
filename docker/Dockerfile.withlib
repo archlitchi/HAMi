@@ -10,15 +10,15 @@ RUN go env -w GO111MODULE=on
 RUN cd /k8s-vgpu && make all VERSION=$VERSION
 RUN go install github.com/NVIDIA/mig-parted/cmd/nvidia-mig-parted@v0.10.0
 
-FROM ubuntu:24.04
-#FROM harbor.4pd.io/sagegpt-aio/pk_platform/ubuntu:22.04
+FROM nvidia/cuda:12.6.3-base-ubuntu22.04
+RUN rm -rf /usr/local/cuda-12.6/compat/libcuda.so*
 ENV NVIDIA_DISABLE_REQUIRE="true"
 ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=utility
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 ARG VERSION
 LABEL version="$VERSION"
-LABEL maintainer="opensource@4paradigm.com"
+LABEL maintainer="info@dynamia.ai"
 COPY ./LICENSE /k8s-vgpu/LICENSE
 COPY --from=GOBUILD /k8s-vgpu/bin /k8s-vgpu/bin
 COPY --from=GOBUILD /go/bin/nvidia-mig-parted /k8s-vgpu/bin/
