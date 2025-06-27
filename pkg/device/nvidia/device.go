@@ -156,6 +156,7 @@ func InitNvidiaDevice(nvconfig NvidiaConfig) *NvidiaGPUDevices {
 	klog.InfoS("initializing nvidia device", "resourceName", nvconfig.ResourceCountName, "resourceMem", nvconfig.ResourceMemoryName, "DefaultGPUNum", nvconfig.DefaultGPUNum)
 	util.InRequestDevices[NvidiaGPUDevice] = "hami.io/vgpu-devices-to-allocate"
 	util.SupportDevices[NvidiaGPUDevice] = "hami.io/vgpu-devices-allocated"
+	util.AdjustmentDevices[NvidiaGPUDevice] = "hami.io/vgpu-devices-try-allocate"
 	util.HandshakeAnnos[NvidiaGPUDevice] = HandshakeAnnos
 	return &NvidiaGPUDevices{
 		config: nvconfig,

@@ -66,12 +66,15 @@ type UsageInfo interface {
 	//UsedMemory(idx int) (uint64, error)
 	GetPriority() int
 	GetRecentKernel() int32
+	SetMemoryUpdate(v uint64)
+	GetMemoryUpdate() uint64
 	SetRecentKernel(v int32)
 	GetUtilizationSwitch() int32
 	SetUtilizationSwitch(v int32)
 }
 
 type ContainerUsage struct {
+	Pod           *corev1.Pod
 	PodUID        string
 	ContainerName string
 	data          []byte
@@ -195,6 +198,7 @@ func (l *ContainerLister) Update() error {
 			continue
 		}
 		usage.PodUID = strings.Split(entry.Name(), "_")[0]
+		usage.Pod = pod
 		usage.ContainerName = strings.Split(entry.Name(), "_")[1]
 		l.containers[entry.Name()] = usage
 		klog.Infof("Adding ctr dirname %s in monitorpath", dirName)
@@ -257,10 +261,8 @@ func loadCache(fpath string) (*ContainerUsage, error) {
 		return nil, fmt.Errorf("cache file magic flag not matched")
 	}
 	if info.Size() == 1197897 {
-		klog.Infoln("casting......v0")
 		usage.Info = v0.CastSpec(usage.data)
 	} else if head.majorVersion == 1 {
-		klog.Infoln("casting......v1")
 		usage.Info = v1.CastSpec(usage.data)
 	} else {
 		_ = syscall.Munmap(usage.data)

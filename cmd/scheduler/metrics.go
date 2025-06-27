@@ -187,7 +187,7 @@ func (cc ClusterManagerCollector) Collect(ch chan<- prometheus.Metric) {
 	quotaUsedDesc := prometheus.NewDesc(
 		"QuotaUsed",
 		"resourcequota usage for a certain device",
-		[]string{"namespace", "quotaName", "limit"}, nil,
+		[]string{"quotanamespace", "quotaName", "limit"}, nil,
 	)
 	quotas := sher.Quotas
 	for ns, val := range quotas {
