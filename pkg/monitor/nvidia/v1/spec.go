@@ -73,6 +73,7 @@ type sharedRegionT struct {
 	recentKernel      int32
 	priority          int32
 	lastKernelTime    int64
+	memoryUpdate      uint64
 	unused            [4]uint64
 }
 
@@ -196,4 +197,12 @@ func (s Spec) GetUtilizationSwitch() int32 {
 
 func (s Spec) SetUtilizationSwitch(v int32) {
 	s.sr.utilizationSwitch = v
+}
+
+func (s Spec) GetMemoryUpdate() uint64 {
+	return s.sr.memoryUpdate
+}
+
+func (s Spec) SetMemoryUpdate(v uint64) {
+	s.sr.memoryUpdate = 0
 }

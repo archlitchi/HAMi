@@ -55,6 +55,13 @@ func newPodManager() *podManager {
 	return pm
 }
 
+func (m *podManager) getDevices(uid k8stypes.UID) (util.PodDevices, bool) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	devs, ok := m.pods[uid]
+	return devs.Devices, ok
+}
+
 func (m *podManager) addPod(pod *corev1.Pod, nodeID string, devices util.PodDevices) bool {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

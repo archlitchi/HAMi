@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -99,7 +100,77 @@ func (s *Scheduler) onAddPod(obj any) {
 		s.onDelPod(pod)
 		return
 	}
+
+	NeedAdjustment := false
+	deviceSelected := ""
+	for device, val := range util.AdjustmentDevices {
+		_, ok := pod.Annotations[val]
+		if ok {
+			NeedAdjustment = true
+			deviceSelected = device
+			break
+		}
+	}
+	if NeedAdjustment {
+		adjdev, _ := util.DecodePodDevices(util.AdjustmentDevices, pod.Annotations)
+		origindev, _ := util.DecodePodDevices(util.SupportDevices, pod.Annotations)
+		delta := map[string]int32{}
+
+		for devicetype, adjustdevs := range adjdev {
+			for ctridx, ctrdevs := range adjustdevs {
+				for devidx, devusage := range ctrdevs {
+					delta[devusage.UUID] = devusage.Usedmem - origindev[devicetype][ctridx][devidx].Usedmem
+					break
+				}
+			}
+		}
+		klog.InfoS("Adjustment delta=", delta)
+		_, ok = s.overviewstatus[nodeID]
+		if ok {
+			for _, val := range s.overviewstatus[nodeID].Devices.DeviceLists {
+				for devuuid, devmemoverhead := range delta {
+					if val.Device.ID == devuuid {
+						if val.Device.Usedmem+devmemoverhead <= val.Device.Totalmem {
+							klog.InfoS("Permit device memory change", "Used", val.Device.Usedmem, "+", devmemoverhead, "<", val.Device.Totalmem)
+							modification := map[string]string{}
+							modification[util.SupportDevices[deviceSelected]] = pod.Annotations[util.AdjustmentDevices[deviceSelected]]
+							util.PatchPodAnnotations(pod, modification)
+						} else {
+							klog.InfoS("Decline device memory change", "Used", val.Device.Usedmem, "+", devmemoverhead, ">", val.Device.Totalmem)
+						}
+						break
+					}
+				}
+			}
+			for _, val := range util.AdjustmentDevices {
+				_, ok := pod.Annotations[val]
+				if ok {
+					err := util.RemovePodAnnotations(pod, val)
+					if err != nil {
+						klog.Errorf("patch Pod Error on device Adjustment:%s", err.Error())
+					}
+				}
+			}
+		}
+	}
 	podDev, _ := util.DecodePodDevices(util.SupportDevices, pod.Annotations)
+
+	needRefresh := false
+	originDev := util.PodDevices{}
+	s.podManager.mutex.Lock()
+	_, ok = s.pods[pod.UID]
+	if ok {
+		originDev = s.pods[pod.UID].Devices
+		if len(originDev) > 0 && !reflect.DeepEqual(podDev["NVIDIA"], originDev["NVIDIA"]) {
+			needRefresh = true
+		}
+	}
+	s.podManager.mutex.Unlock()
+	if needRefresh {
+		s.rmUsage(pod, originDev)
+		s.delPod(pod)
+	}
+
 	if s.addPod(pod, nodeID, podDev) {
 		s.addUsage(pod, podDev)
 	}
@@ -540,10 +611,6 @@ func (s *Scheduler) Filter(args extenderv1.ExtenderArgs) (*extenderv1.ExtenderFi
 		val.PatchAnnotations(&annotations, m.Devices)
 	}
 
-	//InRequestDevices := util.EncodePodDevices(util.InRequestDevices, m.devices)
-	//supportDevices := util.EncodePodDevices(util.SupportDevices, m.devices)
-	//maps.Copy(annotations, InRequestDevices)
-	//maps.Copy(annotations, supportDevices)
 	if s.addPod(args.Pod, m.NodeID, m.Devices) {
 		s.addUsage(args.Pod, m.Devices)
 	}
