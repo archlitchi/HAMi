@@ -226,7 +226,7 @@ func Observe(lister *nvidia.ContainerLister) {
 			}
 			c.Info.SetRecentKernel(recentKernel)
 		}
-		MemoryUpdate := c.Info.GetMemoryUpdate()
+		MemoryUpdate := c.Info.GetMemoryUpdate() / 1024 / 1024
 		if MemoryUpdate != 0 {
 			klog.Infof("Memory Update:%d", MemoryUpdate)
 			c.Info.SetMemoryUpdate(0)
@@ -239,13 +239,17 @@ func Observe(lister *nvidia.ContainerLister) {
 			for ctridx, val := range pd["NVIDIA"] {
 				if c.Pod.Spec.Containers[ctridx].Name == c.ContainerName {
 					for devidx := range val {
-						pd["NVIDIA"][ctridx][devidx].Usedmem += int32(MemoryUpdate)
+						pd["NVIDIA"][ctridx][devidx].Usedmem = int32(MemoryUpdate)
 					}
 				}
 			}
 			annos := util.EncodePodDevices(util.SupportDevices, pd)
 			klog.InfoS("New annos", "annos lists", annos)
 			annos[util.AdjustmentDevices["NVIDIA"]] = annos[util.SupportDevices["NVIDIA"]]
+			_, ok := c.Pod.Annotations["hami.io/nvidia-initial-device-memory"]
+			if !ok {
+				annos["hami.io/nvidia-initial-device-memory"] = c.Pod.Annotations[util.SupportDevices["NVIDIA"]]
+			}
 			delete(annos, util.SupportDevices["NVIDIA"])
 			util.PatchPodAnnotations(c.Pod, annos)
 		}
