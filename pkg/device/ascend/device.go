@@ -144,7 +144,7 @@ func (dev *Devices) GetNodeDevices(n corev1.Node) ([]*util.DeviceInfo, error) {
 	return nodeDevices, nil
 }
 
-func (dev *Devices) PatchAnnotations(annoInput *map[string]string, pd util.PodDevices) map[string]string {
+func (dev *Devices) PatchAnnotations(pod *corev1.Pod, annoInput *map[string]string, pd util.PodDevices) map[string]string {
 	commonWord := dev.CommonWord()
 	devList, ok := pd[commonWord]
 	if ok && len(devList) > 0 {
@@ -281,7 +281,7 @@ func (dev *Devices) ScoreNode(node *corev1.Node, podDevices util.PodSingleDevice
 	return 0
 }
 
-func (dev *Devices) AddResourceUsage(n *util.DeviceUsage, ctr *util.ContainerDevice) error {
+func (dev *Devices) AddResourceUsage(pod *corev1.Pod, n *util.DeviceUsage, ctr *util.ContainerDevice) error {
 	n.Used++
 	n.Usedcores += ctr.Usedcores
 	n.Usedmem += ctr.Usedmem
@@ -296,7 +296,7 @@ func (dev *Devices) GetResourceNames() util.ResoureNames {
 	}
 }
 
-func (npu *Devices) Fit(devices []*util.DeviceUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod, allocated *util.PodDevices) (bool, map[string]util.ContainerDevices, string) {
+func (npu *Devices) Fit(devices []*util.DeviceUsage, request util.ContainerDeviceRequest, annos map[string]string, pod *corev1.Pod, nodeInfo *util.NodeInfo, allocated *util.PodDevices) (bool, map[string]util.ContainerDevices, string) {
 	k := request
 	originReq := k.Nums
 	prevnuma := -1
