@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/Project-HAMi/HAMi/pkg/monitor/nvidia"
+	"github.com/Project-HAMi/HAMi/pkg/util"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 	"k8s.io/klog/v2"
@@ -143,6 +144,33 @@ func Observe(lister *nvidia.ContainerLister) {
 				}
 			}
 			c.Info.SetRecentKernel(recentKernel)
+		}
+		MemoryUpdate := c.Info.GetMemoryUpdate() / 1024 / 1024
+		if MemoryUpdate != 0 {
+			klog.Infof("Memory Update:%d", MemoryUpdate)
+			c.Info.SetMemoryUpdate(0)
+			/* Patch Device Memory to annotations */
+			pd, err := util.DecodePodDevices(util.SupportDevices, c.Pod.Annotations)
+			if err != nil {
+				klog.Errorf("Decode Pod Devices Error:%s", err.Error())
+				continue
+			}
+			for ctridx, val := range pd["NVIDIA"] {
+				if c.Pod.Spec.Containers[ctridx].Name == c.ContainerName {
+					for devidx := range val {
+						pd["NVIDIA"][ctridx][devidx].Usedmem = int32(MemoryUpdate)
+					}
+				}
+			}
+			annos := util.EncodePodDevices(util.SupportDevices, pd)
+			klog.InfoS("New annos", "annos lists", annos)
+			annos[util.AdjustmentDevices["NVIDIA"]] = annos[util.SupportDevices["NVIDIA"]]
+			_, ok := c.Pod.Annotations["hami.io/nvidia-initial-device-memory"]
+			if !ok {
+				annos["hami.io/nvidia-initial-device-memory"] = c.Pod.Annotations[util.SupportDevices["NVIDIA"]]
+			}
+			delete(annos, util.SupportDevices["NVIDIA"])
+			util.PatchPodAnnotations(c.Pod, annos)
 		}
 	}
 	for idx, c := range containers {

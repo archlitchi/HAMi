@@ -47,14 +47,16 @@ const (
 )
 
 var (
-	InRequestDevices map[string]string
-	SupportDevices   map[string]string
-	HandshakeAnnos   map[string]string
+	InRequestDevices  map[string]string
+	SupportDevices    map[string]string
+	AdjustmentDevices map[string]string
+	HandshakeAnnos    map[string]string
 )
 
 func init() {
 	InRequestDevices = make(map[string]string)
 	SupportDevices = make(map[string]string)
+	AdjustmentDevices = make(map[string]string)
 	HandshakeAnnos = make(map[string]string)
 }
 
@@ -370,6 +372,14 @@ func PatchNodeAnnotations(node *corev1.Node, annotations map[string]string) erro
 		klog.Infoln("annotations=", annotations)
 		klog.Infof("patch node %v failed, %v", node.Name, err)
 	}
+	return err
+}
+
+func RemovePodAnnotations(pod *corev1.Pod, key string) error {
+	mkey := strings.ReplaceAll(key, "/", "~1")
+	patchData := fmt.Sprintf("[{\"op\": \"remove\", \"path\":\"/metadata/annotations/%s\"}]", mkey)
+	klog.Infoln("patched data=", string(patchData))
+	_, err := client.GetClient().CoreV1().Pods(pod.Namespace).Patch(context.Background(), pod.Name, k8stypes.JSONPatchType, []byte(patchData), metav1.PatchOptions{})
 	return err
 }
 

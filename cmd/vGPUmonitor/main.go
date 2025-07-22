@@ -27,8 +27,10 @@ import (
 	"time"
 
 	"github.com/Project-HAMi/HAMi/pkg/device-plugin/nvidiadevice/nvinternal/plugin"
+	nvidiapkg "github.com/Project-HAMi/HAMi/pkg/device/nvidia"
 	"github.com/Project-HAMi/HAMi/pkg/monitor/nvidia"
 	"github.com/Project-HAMi/HAMi/pkg/util"
+	"github.com/Project-HAMi/HAMi/pkg/util/client"
 	"github.com/Project-HAMi/HAMi/pkg/util/flag"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -54,6 +56,7 @@ func init() {
 	rootCmd.Flags().SortFlags = false
 	rootCmd.PersistentFlags().SortFlags = false
 	rootCmd.Flags().AddGoFlagSet(util.InitKlogFlags())
+	nvidiapkg.InitNvidiaDevice(nvidiapkg.NvidiaConfig{})
 }
 
 func start() error {
@@ -61,6 +64,7 @@ func start() error {
 		return fmt.Errorf("failed to validate environment variables: %v", err)
 	}
 
+	client.InitGlobalClient()
 	containerLister, err := nvidia.NewContainerLister()
 	if err != nil {
 		return fmt.Errorf("failed to create container lister: %v", err)

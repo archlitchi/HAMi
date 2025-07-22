@@ -194,3 +194,10 @@ func (s Spec) GetUtilizationSwitch() int32 {
 func (s Spec) SetUtilizationSwitch(v int32) {
 	s.sr.utilizationSwitch = v
 }
+
+func (s Spec) GetMemoryUpdate() uint64 {
+	return 0
+}
+
+func (s Spec) SetMemoryUpdate(v uint64) {
+}
