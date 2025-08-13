@@ -43,10 +43,11 @@ iluvatarResourceName: "iluvatar.ai/vgpu"
 iluvatarResourceMem: "iluvatar.ai/vcuda-memory"
 iluvatarResourceCore: "iluvatar.ai/vcuda-core"
 
-#Metax SGPU Parameters
+#Metax sGPU Parameters
 metaxResourceName: "metax-tech.com/sgpu"
 metaxResourceCore: "metax-tech.com/vcore"
 metaxResourceMem: "metax-tech.com/vmemory"
+metaxsGPUTopologyAware: "false"
 
 #Kunlun XPU Parameters
 kunlunResourceName: "kunlunxin.com/xpu"
@@ -147,6 +148,7 @@ scheduler:
     extraArgs:
       - --debug
       - -v=4
+  nodeLockExpire: "5m"
   podAnnotations: {}
   tolerations: []
   #serviceAccountName: "hami-vgpu-scheduler-sa"
@@ -334,6 +336,10 @@ devicePlugin:
 #        memory: 100Mi
 
 devices:
+  awsneuron:
+    customresources:
+      - aws.amazon.com/neuron
+      - aws.amazon.com/neuroncore
   kunlun:
     enabled: true
     customresources:
